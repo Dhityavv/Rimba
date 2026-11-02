@@ -1,0 +1,6 @@
+{
+  "name": "Rimba — Survival Town 2.5D",
+  "description": "Game web 2.5D isometrik multiplayer real-time dengan sistem survival-town, KTP warga, panen resource, pembangunan, pasar, dan AFK.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
