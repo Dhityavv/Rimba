@@ -1,11 +1,16 @@
 -- Run this in the Supabase SQL Editor before starting Rimba.
 -- Includes:
--- 1. Citizen sequence starting at 001 (1)
--- 2. Automatic Region placement (25 registered characters per region: Wilayah 1, Wilayah 2, ...)
--- 3. Starter Sword (Pedang Pemula Rimba / Rimba Beginner Sword) granted atomically on character creation
--- 4. Realtime policies for region:1, region:2, ... channels
+-- 1. Reset all existing character data & restart citizen sequence at 1
+-- 2. Automatic Region placement (20 registered characters per region: Wilayah 1, Wilayah 2, ...)
+-- 3. Region traveling RPC (travel_to_region)
+-- 4. Admin Reset RPC (reset_all_characters)
+-- 5. Starter Sword (Pedang Pemula Rimba / Rimba Beginner Sword) granted atomically on character creation
+-- 6. Realtime policies for region:1, region:2, ... channels
 
-create sequence if not exists public.citizen_number_seq start with 1 minvalue 1;
+-- Wipe existing test characters and restart sequence at 1
+truncate table if exists public.characters cascade;
+drop sequence if exists public.citizen_number_seq cascade;
+create sequence public.citizen_number_seq start with 1 minvalue 1;
 
 create table if not exists public.characters (
   user_id uuid primary key references auth.users(id) on delete cascade,
@@ -33,10 +38,10 @@ create policy "signed-in players can read characters" on public.characters
 revoke insert, update, delete on public.characters from anon, authenticated;
 grant select on public.characters to anon, authenticated;
 
--- Atomic region assignment based on 25 registered characters per region:
--- Citizen 001..025 -> Wilayah 1
--- Citizen 026..050 -> Wilayah 2
--- Citizen 051..075 -> Wilayah 3
+-- Atomic region assignment based on 20 registered characters per region:
+-- Citizen 001..020 -> Wilayah 1
+-- Citizen 021..040 -> Wilayah 2
+-- Citizen 041..060 -> Wilayah 3
 create or replace function public.assign_region_by_capacity()
 returns text
 language plpgsql
@@ -52,7 +57,7 @@ begin
     from public.characters
     where home_region = ('Wilayah ' || v_region_idx);
 
-    if v_count < 25 then
+    if v_count < 20 then
       return 'Wilayah ' || v_region_idx;
     end if;
 
@@ -60,6 +65,43 @@ begin
   end loop;
 end;
 $$;
+
+create or replace function public.travel_to_region(p_region text)
+returns text
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_user_id uuid := auth.uid();
+begin
+  if v_user_id is null then
+    raise exception 'Authentication required';
+  end if;
+  update public.characters
+  set home_region = trim(p_region)
+  where user_id = v_user_id;
+  return trim(p_region);
+end;
+$$;
+
+grant execute on function public.travel_to_region(text) to authenticated;
+
+-- Emergency / Admin reset RPC that can be called anytime to reset data to 0
+create or replace function public.reset_all_characters()
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  truncate table public.characters cascade;
+  perform setval('public.citizen_number_seq', 1, false);
+  return jsonb_build_object('success', true, 'message', 'All characters reset, next citizen is #001');
+end;
+$$;
+
+grant execute on function public.reset_all_characters() to anon, authenticated;
 
 create or replace function public.create_character(
   p_display_name text,
@@ -82,8 +124,13 @@ begin
     raise exception 'Authentication required';
   end if;
 
-  -- Lock per user and global character creation so region capacity (25) and starter sword are 100% atomic & idempotent
+  -- Lock per user and global character creation so region capacity (20) and starter sword are 100% atomic & idempotent
   perform pg_advisory_xact_lock(hashtextextended('rimba:create-character-lock', 0));
+
+  -- Auto-heal: If table has 0 characters, ensure sequence starts at 1
+  if not exists (select 1 from public.characters) then
+    perform setval('public.citizen_number_seq', 1, false);
+  end if;
 
   -- Idempotency: if character already exists on retry, return existing character without duplicating starter sword
   select * into v_existing from public.characters where user_id = v_user_id;

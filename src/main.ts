@@ -2339,6 +2339,13 @@ class WorldScene extends Phaser.Scene {
     }
   }
 
+  public clearOthers() {
+    for (const item of this.others.values()) {
+      item.container.destroy();
+    }
+    this.others.clear();
+  }
+
   public putOther(a: Avatar) {
     const id = a.userId || a.clientId || '';
     if (!id || id === currentUser?.id || a.clientId === clientId) return;
@@ -2614,8 +2621,8 @@ function shell() {
           <span class="brand-mark">R</span>
           <span><b>RIMBA</b><small id="brandSubText">${escapeHtml(dict.brandSub)}</small></span>
         </div>
-        <button type="button" class="world-tag" id="worldHeaderBtn" style="cursor:pointer" title="Wilayah Aktif • Kapasitas Maksimal: 25 Karakter Terdaftar per Wilayah">
-          <i></i> <span id="combinedWorldTag">Wilayah 1 • 1 online • 0 / 25</span>
+        <button type="button" class="world-tag" id="worldHeaderBtn" style="cursor:pointer" title="Wilayah Aktif • Kapasitas Maksimal: 20 Karakter Terdaftar per Wilayah">
+          <i></i> <span id="combinedWorldTag">Wilayah 1 • 1 online • 0 / 20</span>
         </button>
         <div class="topbar-actions">
           <span class="pvp-status-pill off" id="pvpStatusPill">🛡️ ${escapeHtml(dict.pvpStatusOff)}</span>
@@ -3410,6 +3417,34 @@ export function bootRimbaGame() {
   window.addEventListener('resize', resizeGame);
   game.events.once(Phaser.Core.Events.READY, resizeGame);
   requestAnimationFrame(resizeGame);
+
+  window.addEventListener('rimba-switch-region', async (e) => {
+    const targetRegion = (e as CustomEvent<{ targetRegion: string }>).detail?.targetRegion;
+    if (!targetRegion || !character) return;
+    character.home_region = targetRegion;
+    localBackend.saveCharacterRecord(character);
+    if (currentUser && supabase) {
+      try {
+        await supabase.rpc('travel_to_region', { p_region: targetRegion });
+      } catch (err) {
+        console.warn('travel_to_region failed, fallback update', err);
+        try {
+          await supabase.from('characters').update({ home_region: targetRegion }).eq('user_id', currentUser.id);
+        } catch {
+          // ignore
+        }
+      }
+    }
+    world?.clearOthers();
+    await syncGlobalRegionCitizens(targetRegion);
+    await joinWorld();
+    updateCombinedWorldHeader(1);
+    showMessage(
+      currentLang === 'en'
+        ? `Successfully traveled to ${targetRegion}!`
+        : `Berhasil berpindah ke ${targetRegion}!`
+    );
+  });
 
   window.addEventListener('rimba-reclaim-session', () => {
     void reclaimActiveSessionHere();

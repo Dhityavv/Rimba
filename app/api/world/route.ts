@@ -4,8 +4,8 @@ import path from 'path';
 
 export const dynamic = 'force-dynamic';
 
-const REGION_CAPACITY = 25;
-const STATE_FILE_PATH = path.join('/tmp', 'rimba_world_state_v5_clean.json');
+const REGION_CAPACITY = 20;
+const STATE_FILE_PATH = path.join('/tmp', 'rimba_world_state_v6_clean.json');
 
 export type ServerCharacterRecord = {
   user_id: string;
@@ -70,12 +70,12 @@ type PersistedWorldState = {
 };
 
 const globalForWorld = globalThis as unknown as {
-  __rimbaWorldStateV4?: PersistedWorldState;
+  __rimbaWorldStateV5?: PersistedWorldState;
 };
 
 function createEmptyWorldState(): PersistedWorldState {
   return {
-    version: 4,
+    version: 5,
     citizenSeq: 0,
     usersByEmail: {},
     charactersByUserId: {},
@@ -87,15 +87,15 @@ function createEmptyWorldState(): PersistedWorldState {
 }
 
 function getWorldState(): PersistedWorldState {
-  if (globalForWorld.__rimbaWorldStateV4) {
-    return globalForWorld.__rimbaWorldStateV4;
+  if (globalForWorld.__rimbaWorldStateV5) {
+    return globalForWorld.__rimbaWorldStateV5;
   }
   try {
     if (fs.existsSync(STATE_FILE_PATH)) {
       const raw = fs.readFileSync(STATE_FILE_PATH, 'utf-8');
       const parsed = JSON.parse(raw) as PersistedWorldState;
-      if (parsed && parsed.version === 4) {
-        globalForWorld.__rimbaWorldStateV4 = parsed;
+      if (parsed && parsed.version === 5) {
+        globalForWorld.__rimbaWorldStateV5 = parsed;
         return parsed;
       }
     }
@@ -103,7 +103,7 @@ function getWorldState(): PersistedWorldState {
     // Fallback to in-memory state if /tmp is read-only
   }
   const fresh = createEmptyWorldState();
-  globalForWorld.__rimbaWorldStateV4 = fresh;
+  globalForWorld.__rimbaWorldStateV5 = fresh;
   persistWorldState(fresh);
   return fresh;
 }
@@ -132,7 +132,7 @@ function pruneStalePresence(state: PersistedWorldState, now = Date.now()): void 
 }
 
 function computeRegionByCapacity(state: PersistedWorldState, citizenNumber: number): string {
-  // Primary deterministic rule: 1..25 -> Wilayah 1, 26..50 -> Wilayah 2, etc.
+  // Primary deterministic rule: 1..20 -> Wilayah 1, 21..40 -> Wilayah 2, etc.
   const primaryIdx = Math.max(1, Math.ceil(citizenNumber / REGION_CAPACITY));
   const counts = new Map<number, number>();
   for (const c of Object.values(state.charactersByUserId)) {
@@ -685,7 +685,7 @@ export async function POST(req: NextRequest) {
     if (preservedUserEntry) {
       fresh.usersByEmail[preservedUserEntry[0]] = preservedUserEntry[1];
     }
-    globalForWorld.__rimbaWorldStateV4 = fresh;
+    globalForWorld.__rimbaWorldStateV5 = fresh;
     persistWorldState(fresh);
     return NextResponse.json({
       ok: true,

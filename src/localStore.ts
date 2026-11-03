@@ -649,7 +649,7 @@ export function getHatColor(hatId?: string): string | null {
 export const GAME_CONFIG = {
   MAP_SIZE: 56,
   CENTRAL_SPAWN: { x: 28, y: 30 },
-  REGION_CAPACITY: 25,
+  REGION_CAPACITY: 20,
   AFK_EFFICIENCY_RATE: 0.60, // Section 8: AFK rewards strictly grant 60% of normal active yield
   AFK_MAX_MINUTES: 480, // 8 hours max offline calculation
   AFK_IDLE_TIMEOUT_MS: 30 * 1000, // 30 seconds without valid input -> AFK mode
@@ -713,20 +713,20 @@ export const GAME_CONFIG = {
 };
 
 const STORAGE_KEYS = {
-  RESET_FLAG: 'rimba_test_reset_v5_fresh',
-  SESSION: 'rimba_session_v5_clean',
-  USERS: 'rimba_users_v5_clean',
-  CHARACTERS: 'rimba_characters_v5_clean',
-  INVENTORIES: 'rimba_inventories_v5_clean',
-  POSITIONS: 'rimba_positions_v5_clean',
-  WORK_NODES: 'rimba_work_nodes_v5_clean',
-  LISTINGS: 'rimba_listings_v5_clean',
-  ROOM_BOOKINGS: 'rimba_room_bookings_v5_clean',
-  CITIZEN_SEQ: 'rimba_citizen_seq_v5_clean',
-  IDENTITY_LOGS: 'rimba_identity_logs_v5_clean',
+  RESET_FLAG: 'rimba_test_reset_v6_fresh',
+  SESSION: 'rimba_session_v6_clean',
+  USERS: 'rimba_users_v6_clean',
+  CHARACTERS: 'rimba_characters_v6_clean',
+  INVENTORIES: 'rimba_inventories_v6_clean',
+  POSITIONS: 'rimba_positions_v6_clean',
+  WORK_NODES: 'rimba_work_nodes_v6_clean',
+  LISTINGS: 'rimba_listings_v6_clean',
+  ROOM_BOOKINGS: 'rimba_room_bookings_v6_clean',
+  CITIZEN_SEQ: 'rimba_citizen_seq_v6_clean',
+  IDENTITY_LOGS: 'rimba_identity_logs_v6_clean',
 };
 
-function ensureCleanResetV5(): void {
+function ensureCleanResetV6(): void {
   if (typeof window === 'undefined') return;
   try {
     if (window.localStorage.getItem(STORAGE_KEYS.RESET_FLAG) === 'true') return;
@@ -737,7 +737,7 @@ function ensureCleanResetV5(): void {
         k &&
         (k.startsWith('rimba_') || k.startsWith('sb-eneblbbwzfmzgxpbhwth')) &&
         k !== 'rimba_lang_v2' &&
-        !k.endsWith('_v5_clean') &&
+        !k.endsWith('_v6_clean') &&
         k !== STORAGE_KEYS.RESET_FLAG
       ) {
         legacyKeys.push(k);
@@ -1017,17 +1017,17 @@ class LocalGameBackend {
   private reviveInProgressUsers = new Set<string>();
 
   getSessionUser(): LocalUser | null {
-    ensureCleanResetV5();
+    ensureCleanResetV6();
     return readJson<LocalUser | null>(STORAGE_KEYS.SESSION, null);
   }
 
   setSessionUser(user: LocalUser): void {
-    ensureCleanResetV5();
+    ensureCleanResetV6();
     writeJson(STORAGE_KEYS.SESSION, user);
   }
 
   signInAnonymously(): LocalUser {
-    ensureCleanResetV5();
+    ensureCleanResetV6();
     const existing = this.getSessionUser();
     if (existing) return existing;
     const guestId =
@@ -1043,7 +1043,7 @@ class LocalGameBackend {
   }
 
   signUpWithEmail(email: string, password: string, lang: Lang = 'id'): LocalUser {
-    ensureCleanResetV5();
+    ensureCleanResetV6();
     const cleanEmail = email.trim().toLowerCase();
     if (!cleanEmail || password.length < 8) {
       throw new Error(
@@ -1069,7 +1069,7 @@ class LocalGameBackend {
   }
 
   signInWithEmail(email: string, password: string, lang: Lang = 'id'): LocalUser {
-    ensureCleanResetV5();
+    ensureCleanResetV6();
     const cleanEmail = email.trim().toLowerCase();
     const users = readJson<Record<string, { id: string; email: string; password: string }>>(STORAGE_KEYS.USERS, {});
     const found = users[cleanEmail];
@@ -1082,7 +1082,7 @@ class LocalGameBackend {
   }
 
   linkGuestToEmail(userId: string, email: string, password: string, lang: Lang = 'id'): LocalUser {
-    ensureCleanResetV5();
+    ensureCleanResetV6();
     const cleanEmail = email.trim().toLowerCase();
     if (!cleanEmail || password.length < 8) {
       throw new Error(
@@ -1112,13 +1112,13 @@ class LocalGameBackend {
   }
 
   getCharacter(userId: string): Character | null {
-    ensureCleanResetV5();
+    ensureCleanResetV6();
     const all = readJson<Record<string, Character>>(STORAGE_KEYS.CHARACTERS, {});
     return all[userId] ?? null;
   }
 
   saveCharacterRecord(char: Character): Character {
-    ensureCleanResetV5();
+    ensureCleanResetV6();
     const all = readJson<Record<string, Character>>(STORAGE_KEYS.CHARACTERS, {});
     const enriched: Character = {
       ...char,
@@ -1142,9 +1142,9 @@ class LocalGameBackend {
 
   /**
    * Automatic Region assignment based on 25 registered characters per region:
-   * - Citizen 001..025 -> Wilayah 1
-   * - Citizen 026..050 -> Wilayah 2
-   * - Citizen 051..075 -> Wilayah 3
+   * - Citizen 001..020 -> Wilayah 1
+   * - Citizen 021..040 -> Wilayah 2
+   * - Citizen 041..060 -> Wilayah 3
    */
   public assignRegionByCitizenNumber(citizenNumber: number): string {
     const primaryRegionIdx = Math.max(1, Math.ceil(citizenNumber / GAME_CONFIG.REGION_CAPACITY));
@@ -1167,7 +1167,7 @@ class LocalGameBackend {
     params: { p_display_name: string; p_age: number; p_bio: string; p_model_id: string },
     lang: Lang = 'id'
   ): Character {
-    ensureCleanResetV5();
+    ensureCleanResetV6();
     const all = readJson<Record<string, Character>>(STORAGE_KEYS.CHARACTERS, {});
     if (all[userId]) {
       this.getInventory(userId);
@@ -1230,7 +1230,7 @@ class LocalGameBackend {
   }
 
   getInventory(userId: string): Inventory {
-    ensureCleanResetV5();
+    ensureCleanResetV6();
     const all = readJson<Record<string, Inventory>>(STORAGE_KEYS.INVENTORIES, {});
     const wib = getWibTimeInfo();
     if (!all[userId]) {
@@ -2745,7 +2745,7 @@ class LocalGameBackend {
       afkInRegion?: number;
     }
   ) {
-    ensureCleanResetV5();
+    ensureCleanResetV6();
     const allChars = Object.values(readJson<Record<string, Character>>(STORAGE_KEYS.CHARACTERS, {}));
     const regionName = serverSummary?.regionName || activeRegionName || 'Wilayah 1';
     const regionChars = allChars.filter(c => c.home_region === regionName);
@@ -2820,12 +2820,12 @@ class LocalGameBackend {
           date: '03 November 2026',
           category_id: 'World',
           category_en: 'World',
-          title_id: 'Penempatan Wilayah Otomatis Berdasarkan Kapasitas (25 Karakter / Wilayah)',
-          title_en: 'Automatic Region Assignment by Capacity (25 Characters / Region)',
+          title_id: 'Penempatan Wilayah Otomatis Berdasarkan Kapasitas (20 Karakter / Wilayah)',
+          title_en: 'Automatic Region Assignment by Capacity (20 Characters / Region)',
           body_id:
-            'Setiap Wilayah memiliki kapasitas maksimal 25 karakter terdaftar. Warga #001–#025 ditempatkan otomatis di Wilayah 1, #026–#050 di Wilayah 2, dan seterusnya secara atomik di server.',
+            'Setiap Wilayah memiliki kapasitas maksimal 20 karakter terdaftar. Warga #001–#025 ditempatkan otomatis di Wilayah 1, #026–#050 di Wilayah 2, dan seterusnya secara atomik di server.',
           body_en:
-            'Each Region holds a maximum of 25 registered characters. Citizens #001–#025 are automatically assigned to Region 1, #026–#050 to Region 2, and so on atomically on the server.',
+            'Each Region holds a maximum of 20 registered characters. Citizens #001–#025 are automatically assigned to Region 1, #026–#050 to Region 2, and so on atomically on the server.',
         },
         {
           id: 'news-rev-mobile-opt',
