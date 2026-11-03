@@ -295,6 +295,23 @@ const clientId =
   typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `client-${Date.now()}`;
 const latestMoves = new Map<string, Avatar>();
 const serverMoves = new Map<string, Avatar>();
+let globalRegionCitizens: Character[] = [];
+
+async function syncGlobalRegionCitizens(activeRegion: string): Promise<void> {
+  if (!supabase) return;
+  try {
+    const { data, error } = await supabase
+      .from('characters')
+      .select('*')
+      .eq('home_region', activeRegion);
+    if (!error && Array.isArray(data)) {
+      globalRegionCitizens = data as Character[];
+      world?.setOnline(mergedAvatars());
+    }
+  } catch (err) {
+    console.warn('syncGlobalRegionCitizens failed', err);
+  }
+}
 
 function isCompactMobileViewport(): boolean {
   if (typeof window === 'undefined') return false;
@@ -2697,13 +2714,22 @@ function showMessage(text: string) {
 async function activateGuestModeAndContinue() {
   if (supabase) {
     try {
-      const { data, error } = await supabase.auth.signInAnonymously();
-      if (!error && data.user) {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
         currentUser = {
-          id: data.user.id,
-          email: data.user.email,
-          is_anonymous: Boolean(data.user.is_anonymous ?? true),
+          id: session.user.id,
+          email: session.user.email,
+          is_anonymous: Boolean(session.user.is_anonymous),
         };
+      } else {
+        const { data, error } = await supabase.auth.signInAnonymously();
+        if (!error && data?.user) {
+          currentUser = {
+            id: data.user.id,
+            email: data.user.email,
+            is_anonymous: true,
+          };
+        }
       }
     } catch {
       // Fallback to localBackend
@@ -2711,10 +2737,14 @@ async function activateGuestModeAndContinue() {
   }
   if (!currentUser) {
     currentUser = localBackend.signInAnonymously();
+  } else {
+    localBackend.setSessionUser(currentUser);
   }
   syncAccountButtonLabel();
   await loadCharacter();
-  void joinWorld();
+  const activeRegion = character?.home_region || 'Wilayah 1';
+  await syncGlobalRegionCitizens(activeRegion);
+  await joinWorld();
   $('#dialog-root').innerHTML = '';
   if (!character) {
     openCharacterCreator();
@@ -2870,10 +2900,28 @@ function openAuth() {
 
 function openCharacterCreator() {
   if (!currentUser) {
-    currentUser = localBackend.signInAnonymously();
-    syncAccountButtonLabel();
+    if (supabase) {
+      void supabase.auth.getSession().then(async ({ data }) => {
+        if (!data.session?.user) {
+          const sign = await supabase!.auth.signInAnonymously();
+          if (sign.data?.user) {
+            currentUser = { id: sign.data.user.id, email: sign.data.user.email, is_anonymous: true };
+            localBackend.setSessionUser(currentUser);
+            syncAccountButtonLabel();
+          }
+        } else {
+          currentUser = { id: data.session.user.id, email: data.session.user.email, is_anonymous: Boolean(data.session.user.is_anonymous) };
+          localBackend.setSessionUser(currentUser);
+          syncAccountButtonLabel();
+        }
+      });
+    }
+    if (!currentUser) {
+      currentUser = localBackend.signInAnonymously();
+      syncAccountButtonLabel();
+    }
   }
-  const existing = localBackend.getCharacter(currentUser.id);
+  const existing = (currentUser ? localBackend.getCharacter(currentUser.id) : null) || character;
   if (existing) {
     character = existing;
     window.dispatchEvent(new Event('character-change'));
@@ -2943,8 +2991,51 @@ function openCharacterCreator() {
       };
       let created: Character | null = null;
 
-      // 1. Authoritative server creation (/api/world) for atomic Citizen #001 sequence, 25-capacity region & starter sword
-      if (currentUser) {
+      // 1. Authoritative Supabase Creation (Sequential Atomic Citizen Number: 001, 002, 003...)
+      if (supabase) {
+        let authUser = (await supabase.auth.getUser()).data.user;
+        if (!authUser) {
+          const sign = await supabase.auth.signInAnonymously();
+          authUser = sign.data?.user ?? null;
+        }
+        if (authUser) {
+          currentUser = {
+            id: authUser.id,
+            email: authUser.email,
+            is_anonymous: Boolean(authUser.is_anonymous),
+          };
+          localBackend.setSessionUser(currentUser);
+          syncAccountButtonLabel();
+
+          const { data, error } = await supabase.rpc('create_character', payload);
+          if (error) {
+            console.error('Supabase create_character error:', error);
+            if (
+              error.message?.includes('violates unique constraint') ||
+              error.message?.includes('duplicate key') ||
+              error.message?.includes('already exists')
+            ) {
+              throw new Error(
+                currentLang === 'en'
+                  ? 'Character name is already used by another citizen.'
+                  : 'Nama karakter sudah digunakan warga lain.'
+              );
+            }
+          } else if (data) {
+            const cloudChar = data as Character;
+            created = localBackend.saveCharacterRecord({
+              ...cloudChar,
+              outfit_id: 'tunika-rimba',
+              hat_id: 'none',
+              residence_status: 'Warga',
+              starter_sword_id: STARTER_SWORD_SPEC.id,
+            });
+          }
+        }
+      }
+
+      // 2. Authoritative server fallback (/api/world)
+      if (!created && currentUser) {
         try {
           const res = await fetch('/api/world', {
             method: 'POST',
@@ -2985,22 +3076,7 @@ function openCharacterCreator() {
         }
       }
 
-      // 2. Also persist in Supabase if configured
-      if (!created && supabase && currentUser) {
-        const { data, error } = await supabase.rpc('create_character', payload);
-        if (!error && data) {
-          const cloudChar = data as Character;
-          created = localBackend.saveCharacterRecord({
-            ...cloudChar,
-            outfit_id: 'tunika-rimba',
-            hat_id: 'none',
-            residence_status: 'Warga',
-            starter_sword_id: STARTER_SWORD_SPEC.id,
-          });
-        }
-      }
-
-      // 3. Fallback to localBackend atomic creation
+      // 3. Fallback to localBackend atomic creation only if completely offline
       if (!created && currentUser) {
         created = localBackend.createCharacter(currentUser.id, payload, currentLang);
       }
@@ -3010,6 +3086,8 @@ function openCharacterCreator() {
       world?.setPosition(ownTilePosition.x, ownTilePosition.y);
       $('#dialog-root').innerHTML = '';
       window.dispatchEvent(new Event('character-change'));
+      const activeRegion = character?.home_region || 'Wilayah 1';
+      await syncGlobalRegionCitizens(activeRegion);
       await joinWorld();
       openKtp();
     } catch (err) {
@@ -3141,6 +3219,22 @@ async function joinWorld() {
     channel = null;
   }
   if (channel && currentSubscribedRegion === channelTopic) {
+    if (currentUser && character) {
+      void channel.track({
+        userId: currentUser.id,
+        clientId,
+        citizenNumber: character.citizen_number,
+        name: character.display_name,
+        tx: ownTilePosition.x,
+        ty: ownTilePosition.y,
+        color: character.avatar_color,
+        hatColor: getHatColor(character.hat_id) ?? undefined,
+        modelId: character.model_id,
+        homeRegion: character.home_region,
+        isAfk: false,
+        facing: 'S',
+      });
+    }
     world?.broadcastOwnStateNow(false);
     return;
   }
@@ -3228,9 +3322,33 @@ function mergedAvatars(): Avatar[] {
   const combined = new Map<string, Avatar>();
   const activeRegion = character?.home_region || 'Wilayah 1';
 
-  // 1. Local registered characters (persist in AFK mode when offline)
+  // 1. All globally registered citizens in this region (default: persistent AFK citizens)
+  for (const cit of globalRegionCitizens) {
+    if (currentUser && cit.user_id === currentUser.id) continue;
+    const citNum = cit.citizen_number || 1;
+    const defaultX = 23 + ((citNum * 7) % 11);
+    const defaultY = 24 + ((citNum * 13) % 11);
+    combined.set(cit.user_id, {
+      userId: cit.user_id,
+      clientId: cit.user_id,
+      citizenNumber: cit.citizen_number,
+      name: cit.display_name,
+      tx: defaultX,
+      ty: defaultY,
+      color: cit.avatar_color ?? '#5f9e6e',
+      hatColor: getHatColor(cit.hat_id) ?? undefined,
+      modelId: cit.model_id,
+      homeRegion: cit.home_region || activeRegion,
+      isAfk: true,
+      isOfflineAfk: true,
+      facing: 'S',
+    });
+  }
+
+  // 2. Local registered characters (fallback for offline mode)
   const localAfk = localBackend.getRegisteredAfkCitizens(activeRegion, currentUser?.id);
   for (const cit of localAfk) {
+    if (combined.has(cit.id)) continue;
     const wp = cit.waypoints[0] ?? { x: 28, y: 30 };
     combined.set(cit.id, {
       userId: cit.id,
@@ -3248,23 +3366,33 @@ function mergedAvatars(): Avatar[] {
     });
   }
 
-  // 2. Server registered characters & online presence from /api/world
+  // 3. Server registered characters & online presence from /api/world
   for (const [uid, srvAvatar] of serverMoves) {
+    if (currentUser && uid === currentUser.id) continue;
     combined.set(uid, srvAvatar);
   }
 
-  // 3. Supabase presence avatars (currently connected)
+  // 4. Supabase presence avatars (currently connected over WebSocket live)
   for (const presAvatar of getPresenceAvatars()) {
     const key = presAvatar.userId || presAvatar.clientId!;
-    combined.set(key, latestMoves.get(key) ?? presAvatar);
+    if (currentUser && (key === currentUser.id || presAvatar.clientId === clientId)) continue;
+    const existing = combined.get(key);
+    combined.set(key, {
+      ...existing,
+      ...presAvatar,
+      isOfflineAfk: false,
+    });
   }
 
-  // 4. Live movement broadcasts (overrides static/AFK positions immediately)
+  // 5. Live movement broadcasts (overrides static/AFK positions immediately)
   for (const [id, moveAvatar] of latestMoves) {
+    if (currentUser && (id === currentUser.id || moveAvatar.clientId === clientId)) continue;
     const existing = combined.get(id);
-    if (!existing || (moveAvatar.lastSwingAt ?? 0) >= (existing.lastSwingAt ?? 0) || !existing.isAfk) {
-      combined.set(id, moveAvatar);
-    }
+    combined.set(id, {
+      ...existing,
+      ...moveAvatar,
+      isOfflineAfk: false,
+    });
   }
 
   return [...combined.values()];
@@ -3377,14 +3505,51 @@ export function bootRimbaGame() {
     }
   };
 
-  const savedLocalUser = localBackend.getSessionUser();
-  if (savedLocalUser) {
-    currentUser = savedLocalUser;
+  const initApp = async () => {
+    if (supabase) {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          currentUser = {
+            id: session.user.id,
+            email: session.user.email,
+            is_anonymous: Boolean(session.user.is_anonymous),
+          };
+        } else {
+          const { data, error } = await supabase.auth.signInAnonymously();
+          if (!error && data?.user) {
+            currentUser = {
+              id: data.user.id,
+              email: data.user.email,
+              is_anonymous: true,
+            };
+          }
+        }
+      } catch (e) {
+        console.warn('Supabase auth initialization error', e);
+      }
+    }
+
+    if (!currentUser) {
+      const savedLocalUser = localBackend.getSessionUser();
+      if (savedLocalUser) {
+        currentUser = savedLocalUser;
+      }
+    } else {
+      localBackend.setSessionUser(currentUser);
+    }
+
     syncAccountButtonLabel();
-    void loadCharacter().then(() => joinWorld());
-  } else {
-    void joinWorld();
-  }
+    await loadCharacter();
+    const activeRegion = character?.home_region || 'Wilayah 1';
+    await syncGlobalRegionCitizens(activeRegion);
+    await joinWorld();
+
+    if (!character) {
+      openCharacterCreator();
+    }
+  };
+  void initApp();
 }
 
 if (
