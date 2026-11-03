@@ -2322,7 +2322,10 @@ class WorldScene extends Phaser.Scene {
     }
     for (const [id, item] of this.others.entries()) {
       if (!activeIds.has(id)) {
-        if (item.citizenNumber || item.isRegistered) {
+        if (Date.now() - item.lastSeen > 12000) {
+          item.container.destroy();
+          this.others.delete(id);
+        } else {
           item.isAfk = true;
           item.isOfflineAfk = true;
           const displayLabel = `${sanitizePlayerLabelName(item.name, 'Warga')} (AFK)`;
@@ -2331,9 +2334,6 @@ class WorldScene extends Phaser.Scene {
             item.label.setBackgroundColor('rgba(120, 53, 15, 0.86)');
             item.lastLabel = displayLabel;
           }
-        } else if (Date.now() - item.lastSeen > 8000) {
-          item.container.destroy();
-          this.others.delete(id);
         }
       }
     }
@@ -3320,71 +3320,18 @@ function getPresenceAvatars(): Avatar[] {
 
 function mergedAvatars(): Avatar[] {
   const combined = new Map<string, Avatar>();
-  const activeRegion = character?.home_region || 'Wilayah 1';
 
-  // 1. All globally registered citizens in this region (default: persistent AFK citizens)
-  for (const cit of globalRegionCitizens) {
-    if (currentUser && cit.user_id === currentUser.id) continue;
-    const citNum = cit.citizen_number || 1;
-    const defaultX = 23 + ((citNum * 7) % 11);
-    const defaultY = 24 + ((citNum * 13) % 11);
-    combined.set(cit.user_id, {
-      userId: cit.user_id,
-      clientId: cit.user_id,
-      citizenNumber: cit.citizen_number,
-      name: cit.display_name,
-      tx: defaultX,
-      ty: defaultY,
-      color: cit.avatar_color ?? '#5f9e6e',
-      hatColor: getHatColor(cit.hat_id) ?? undefined,
-      modelId: cit.model_id,
-      homeRegion: cit.home_region || activeRegion,
-      isAfk: true,
-      isOfflineAfk: true,
-      facing: 'S',
-    });
-  }
-
-  // 2. Local registered characters (fallback for offline mode)
-  const localAfk = localBackend.getRegisteredAfkCitizens(activeRegion, currentUser?.id);
-  for (const cit of localAfk) {
-    if (combined.has(cit.id)) continue;
-    const wp = cit.waypoints[0] ?? { x: 28, y: 30 };
-    combined.set(cit.id, {
-      userId: cit.id,
-      clientId: cit.id,
-      name: cit.display_name,
-      tx: wp.x,
-      ty: wp.y,
-      color: cit.avatar_color ?? '#5f9e6e',
-      hatColor: cit.hat_color,
-      modelId: cit.model_id,
-      homeRegion: activeRegion,
-      isAfk: true,
-      isOfflineAfk: true,
-      facing: 'S',
-    });
-  }
-
-  // 3. Server registered characters & online presence from /api/world
-  for (const [uid, srvAvatar] of serverMoves) {
-    if (currentUser && uid === currentUser.id) continue;
-    combined.set(uid, srvAvatar);
-  }
-
-  // 4. Supabase presence avatars (currently connected over WebSocket live)
+  // 1. Supabase presence avatars (real players currently connected live)
   for (const presAvatar of getPresenceAvatars()) {
     const key = presAvatar.userId || presAvatar.clientId!;
     if (currentUser && (key === currentUser.id || presAvatar.clientId === clientId)) continue;
-    const existing = combined.get(key);
     combined.set(key, {
-      ...existing,
       ...presAvatar,
       isOfflineAfk: false,
     });
   }
 
-  // 5. Live movement broadcasts (overrides static/AFK positions immediately)
+  // 2. Live movement broadcasts (sub-second position updates from active players)
   for (const [id, moveAvatar] of latestMoves) {
     if (currentUser && (id === currentUser.id || moveAvatar.clientId === clientId)) continue;
     const existing = combined.get(id);
@@ -3393,6 +3340,16 @@ function mergedAvatars(): Avatar[] {
       ...moveAvatar,
       isOfflineAfk: false,
     });
+  }
+
+  // 3. Fallback server presence from /api/world if running in non-supabase mode
+  if (!supabase) {
+    for (const [uid, srvAvatar] of serverMoves) {
+      if (currentUser && uid === currentUser.id) continue;
+      if (!combined.has(uid)) {
+        combined.set(uid, srvAvatar);
+      }
+    }
   }
 
   return [...combined.values()];
