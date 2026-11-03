@@ -713,20 +713,20 @@ export const GAME_CONFIG = {
 };
 
 const STORAGE_KEYS = {
-  RESET_FLAG: 'rimba_test_reset_v4_done',
-  SESSION: 'rimba_session_v4_clean',
-  USERS: 'rimba_users_v4_clean',
-  CHARACTERS: 'rimba_characters_v4_clean',
-  INVENTORIES: 'rimba_inventories_v4_clean',
-  POSITIONS: 'rimba_positions_v4_clean',
-  WORK_NODES: 'rimba_work_nodes_v4_clean',
-  LISTINGS: 'rimba_listings_v4_clean',
-  ROOM_BOOKINGS: 'rimba_room_bookings_v4_clean',
-  CITIZEN_SEQ: 'rimba_citizen_seq_v4_clean',
-  IDENTITY_LOGS: 'rimba_identity_logs_v4_clean',
+  RESET_FLAG: 'rimba_test_reset_v5_fresh',
+  SESSION: 'rimba_session_v5_clean',
+  USERS: 'rimba_users_v5_clean',
+  CHARACTERS: 'rimba_characters_v5_clean',
+  INVENTORIES: 'rimba_inventories_v5_clean',
+  POSITIONS: 'rimba_positions_v5_clean',
+  WORK_NODES: 'rimba_work_nodes_v5_clean',
+  LISTINGS: 'rimba_listings_v5_clean',
+  ROOM_BOOKINGS: 'rimba_room_bookings_v5_clean',
+  CITIZEN_SEQ: 'rimba_citizen_seq_v5_clean',
+  IDENTITY_LOGS: 'rimba_identity_logs_v5_clean',
 };
 
-function ensureCleanResetV4(): void {
+function ensureCleanResetV5(): void {
   if (typeof window === 'undefined') return;
   try {
     if (window.localStorage.getItem(STORAGE_KEYS.RESET_FLAG) === 'true') return;
@@ -735,9 +735,9 @@ function ensureCleanResetV4(): void {
       const k = window.localStorage.key(i);
       if (
         k &&
-        k.startsWith('rimba_') &&
+        (k.startsWith('rimba_') || k.startsWith('sb-eneblbbwzfmzgxpbhwth')) &&
         k !== 'rimba_lang_v2' &&
-        !k.endsWith('_v4_clean') &&
+        !k.endsWith('_v5_clean') &&
         k !== STORAGE_KEYS.RESET_FLAG
       ) {
         legacyKeys.push(k);
@@ -1017,17 +1017,17 @@ class LocalGameBackend {
   private reviveInProgressUsers = new Set<string>();
 
   getSessionUser(): LocalUser | null {
-    ensureCleanResetV4();
+    ensureCleanResetV5();
     return readJson<LocalUser | null>(STORAGE_KEYS.SESSION, null);
   }
 
   setSessionUser(user: LocalUser): void {
-    ensureCleanResetV4();
+    ensureCleanResetV5();
     writeJson(STORAGE_KEYS.SESSION, user);
   }
 
   signInAnonymously(): LocalUser {
-    ensureCleanResetV4();
+    ensureCleanResetV5();
     const existing = this.getSessionUser();
     if (existing) return existing;
     const guestId =
@@ -1043,7 +1043,7 @@ class LocalGameBackend {
   }
 
   signUpWithEmail(email: string, password: string, lang: Lang = 'id'): LocalUser {
-    ensureCleanResetV4();
+    ensureCleanResetV5();
     const cleanEmail = email.trim().toLowerCase();
     if (!cleanEmail || password.length < 8) {
       throw new Error(
@@ -1069,7 +1069,7 @@ class LocalGameBackend {
   }
 
   signInWithEmail(email: string, password: string, lang: Lang = 'id'): LocalUser {
-    ensureCleanResetV4();
+    ensureCleanResetV5();
     const cleanEmail = email.trim().toLowerCase();
     const users = readJson<Record<string, { id: string; email: string; password: string }>>(STORAGE_KEYS.USERS, {});
     const found = users[cleanEmail];
@@ -1082,7 +1082,7 @@ class LocalGameBackend {
   }
 
   linkGuestToEmail(userId: string, email: string, password: string, lang: Lang = 'id'): LocalUser {
-    ensureCleanResetV4();
+    ensureCleanResetV5();
     const cleanEmail = email.trim().toLowerCase();
     if (!cleanEmail || password.length < 8) {
       throw new Error(
@@ -1112,13 +1112,13 @@ class LocalGameBackend {
   }
 
   getCharacter(userId: string): Character | null {
-    ensureCleanResetV4();
+    ensureCleanResetV5();
     const all = readJson<Record<string, Character>>(STORAGE_KEYS.CHARACTERS, {});
     return all[userId] ?? null;
   }
 
   saveCharacterRecord(char: Character): Character {
-    ensureCleanResetV4();
+    ensureCleanResetV5();
     const all = readJson<Record<string, Character>>(STORAGE_KEYS.CHARACTERS, {});
     const enriched: Character = {
       ...char,
@@ -1167,7 +1167,7 @@ class LocalGameBackend {
     params: { p_display_name: string; p_age: number; p_bio: string; p_model_id: string },
     lang: Lang = 'id'
   ): Character {
-    ensureCleanResetV4();
+    ensureCleanResetV5();
     const all = readJson<Record<string, Character>>(STORAGE_KEYS.CHARACTERS, {});
     if (all[userId]) {
       this.getInventory(userId);
@@ -1230,7 +1230,7 @@ class LocalGameBackend {
   }
 
   getInventory(userId: string): Inventory {
-    ensureCleanResetV4();
+    ensureCleanResetV5();
     const all = readJson<Record<string, Inventory>>(STORAGE_KEYS.INVENTORIES, {});
     const wib = getWibTimeInfo();
     if (!all[userId]) {
@@ -2726,7 +2726,7 @@ class LocalGameBackend {
 
   // All registered player characters in the region persist on map in AFK mode when offline
   getRegisteredAfkCitizens(currentRegion = 'Wilayah 1', excludeUserId?: string): SimulatedAfkCitizen[] {
-    ensureCleanResetV4();
+    ensureCleanResetV5();
     const allChars = Object.values(readJson<Record<string, Character>>(STORAGE_KEYS.CHARACTERS, {}));
     const positions = readJson<Record<string, { x: number; y: number }>>(STORAGE_KEYS.POSITIONS, {});
     const targetRegion = currentRegion || 'Wilayah 1';
@@ -2777,7 +2777,7 @@ class LocalGameBackend {
       afkInRegion?: number;
     }
   ) {
-    ensureCleanResetV4();
+    ensureCleanResetV5();
     const allChars = Object.values(readJson<Record<string, Character>>(STORAGE_KEYS.CHARACTERS, {}));
     const regionName = serverSummary?.regionName || activeRegionName || 'Wilayah 1';
     const regionChars = allChars.filter(c => c.home_region === regionName);

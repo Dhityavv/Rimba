@@ -5,7 +5,7 @@ import path from 'path';
 export const dynamic = 'force-dynamic';
 
 const REGION_CAPACITY = 25;
-const STATE_FILE_PATH = path.join('/tmp', 'rimba_world_state_v4_clean.json');
+const STATE_FILE_PATH = path.join('/tmp', 'rimba_world_state_v5_clean.json');
 
 export type ServerCharacterRecord = {
   user_id: string;
