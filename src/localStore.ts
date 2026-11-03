@@ -640,6 +640,12 @@ export const OUTFIT_CATALOG: OutfitCatalogItem[] = [
   },
 ];
 
+export function getHatColor(hatId?: string): string | null {
+  if (!hatId || hatId === 'none') return null;
+  const found = OUTFIT_CATALOG.find(item => item.id === hatId && item.category === 'hat');
+  return found && found.color !== 'transparent' ? found.color : null;
+}
+
 export const GAME_CONFIG = {
   MAP_SIZE: 56,
   CENTRAL_SPAWN: { x: 28, y: 30 },
@@ -2718,9 +2724,45 @@ class LocalGameBackend {
     };
   }
 
-  // Section 3: All dummy/sample characters removed. Only real registered KTP player characters exist.
-  getSimulatedRegionAfkCitizens(): SimulatedAfkCitizen[] {
-    return [];
+  // All registered player characters in the region persist on map in AFK mode when offline
+  getRegisteredAfkCitizens(currentRegion = 'Wilayah 1', excludeUserId?: string): SimulatedAfkCitizen[] {
+    ensureCleanResetV4();
+    const allChars = Object.values(readJson<Record<string, Character>>(STORAGE_KEYS.CHARACTERS, {}));
+    const positions = readJson<Record<string, { x: number; y: number }>>(STORAGE_KEYS.POSITIONS, {});
+    const targetRegion = currentRegion || 'Wilayah 1';
+    const out: SimulatedAfkCitizen[] = [];
+
+    for (const c of allChars) {
+      if (excludeUserId && c.user_id === excludeUserId) continue;
+      if (c.home_region && c.home_region !== targetRegion) continue;
+
+      const pos = positions[c.user_id] ?? { x: GAME_CONFIG.CENTRAL_SPAWN.x, y: GAME_CONFIG.CENTRAL_SPAWN.y };
+      const spec = getCharacterModelSpec(c.model_id);
+      const cx = Math.max(2, Math.min(53, Math.round(pos.x)));
+      const cy = Math.max(2, Math.min(53, Math.round(pos.y)));
+
+      out.push({
+        id: c.user_id,
+        display_name: c.display_name,
+        model_id: c.model_id,
+        avatar_color: c.avatar_color || spec.shirtColor,
+        hat_color: getHatColor(c.hat_id) ?? undefined,
+        activity: 'stroll',
+        waypoints: [
+          { x: cx, y: cy },
+          { x: Math.min(53, cx + 1), y: cy },
+          { x: Math.min(53, cx + 1), y: Math.min(53, cy + 1) },
+          { x: cx, y: Math.min(53, cy + 1) },
+        ],
+        phaseOffset: ((c.citizen_number || 1) * 739) % 60000,
+      });
+    }
+
+    return out;
+  }
+
+  getSimulatedRegionAfkCitizens(currentRegion = 'Wilayah 1', excludeUserId?: string): SimulatedAfkCitizen[] {
+    return this.getRegisteredAfkCitizens(currentRegion, excludeUserId);
   }
 
   getWorldRegionAndNewsStats(
@@ -2749,7 +2791,7 @@ class LocalGameBackend {
       serverSummary?.permanentInRegion ?? 0
     );
     const activeOnlinePlayers = Math.max(onlineNowCount, serverSummary?.onlineInRegion ?? 0);
-    const afkCount = serverSummary?.afkInRegion ?? 0;
+    const afkCount = serverSummary?.afkInRegion ?? Math.max(0, totalRegisteredCitizens - activeOnlinePlayers);
 
     return {
       regionName,

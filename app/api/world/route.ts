@@ -39,6 +39,7 @@ export type ServerPresenceAvatar = {
   hatColor?: string;
   modelId: string;
   isAfk: boolean;
+  isOfflineAfk?: boolean;
   hp: number;
   maxHp: number;
   isDowned: boolean;
@@ -117,7 +118,13 @@ function persistWorldState(state: PersistedWorldState): void {
 
 function pruneStalePresence(state: PersistedWorldState, now = Date.now()): void {
   for (const [uid, pres] of Object.entries(state.presenceByUserId)) {
-    if (now - pres.updatedAt > 25_000) {
+    if (now - pres.updatedAt > 20_000) {
+      state.positionsByUserId[uid] = {
+        tx: pres.tx,
+        ty: pres.ty,
+        dir: pres.dir || 'S',
+        updatedAt: now,
+      };
       delete state.presenceByUserId[uid];
     }
   }
@@ -145,6 +152,7 @@ function getRegionSummary(state: PersistedWorldState, regionName: string) {
   const regionChars = allChars.filter(c => c.home_region === regionName);
   const regionOnline = Object.values(state.presenceByUserId).filter(p => p.region === regionName);
   const afkCount = regionOnline.filter(p => p.isAfk).length;
+  const offlineRegistered = Math.max(0, regionChars.length - regionOnline.length);
 
   return {
     regionName,
@@ -153,8 +161,75 @@ function getRegionSummary(state: PersistedWorldState, regionName: string) {
     permanentInRegion: regionChars.filter(c => c.residence_status === 'Penduduk').length,
     totalRegisteredAllRegions: allChars.length,
     onlineInRegion: regionOnline.length,
-    afkInRegion: afkCount,
+    afkInRegion: afkCount + offlineRegistered,
   };
+}
+
+function getRegionPlayers(
+  state: PersistedWorldState,
+  effectiveRegion: string,
+  excludeUserId: string,
+  now: number
+): ServerPresenceAvatar[] {
+  const allCharsInRegion = Object.values(state.charactersByUserId).filter(
+    c => c.home_region === effectiveRegion
+  );
+
+  const players: ServerPresenceAvatar[] = [];
+  const processedUserIds = new Set<string>();
+
+  for (const c of allCharsInRegion) {
+    if (c.user_id === excludeUserId) continue;
+    processedUserIds.add(c.user_id);
+
+    const pres = state.presenceByUserId[c.user_id];
+    const isLiveOnline = Boolean(pres && now - pres.updatedAt < 20_000);
+
+    if (isLiveOnline && pres) {
+      players.push({
+        ...pres,
+        isAfk: pres.isAfk,
+        isOfflineAfk: false,
+        hp: pres.hp ?? 100,
+        maxHp: pres.maxHp ?? 100,
+      });
+    } else {
+      // Offline registered character -> PERSIST ON MAP IN AFK MODE!
+      const pos = state.positionsByUserId[c.user_id] ?? { tx: 28, ty: 30, dir: 'S', updatedAt: now };
+      players.push({
+        userId: c.user_id,
+        sessionId: '',
+        citizenNumber: c.citizen_number,
+        name: c.display_name,
+        region: c.home_region,
+        tx: pos.tx,
+        ty: pos.ty,
+        dir: pos.dir || 'S',
+        color: c.avatar_color,
+        hatColor: c.hat_id !== 'none' ? c.hat_id : undefined,
+        modelId: c.model_id,
+        isAfk: true,
+        isOfflineAfk: true,
+        hp: 100,
+        maxHp: 100,
+        isDowned: false,
+        lastSwingAt: 0,
+        swingDir: pos.dir || 'S',
+        updatedAt: pos.updatedAt || now,
+      });
+    }
+  }
+
+  // Also include online spectators or guests exploring without character yet
+  for (const pres of Object.values(state.presenceByUserId)) {
+    if (pres.region === effectiveRegion && pres.userId !== excludeUserId && !processedUserIds.has(pres.userId)) {
+      if (now - pres.updatedAt < 20_000) {
+        players.push(pres);
+      }
+    }
+  }
+
+  return players;
 }
 
 export async function GET(req: NextRequest) {
@@ -180,9 +255,7 @@ export async function GET(req: NextRequest) {
       now - activeSession.updatedAt < 25_000
   );
 
-  const regionPlayers = Object.values(state.presenceByUserId).filter(
-    p => p.region === effectiveRegion && p.userId !== userId
-  );
+  const regionPlayers = getRegionPlayers(state, effectiveRegion, userId, now);
 
   const pendingPvpHits = userId
     ? state.pvpEvents.filter(ev => ev.targetUserId === userId)
@@ -524,9 +597,7 @@ export async function POST(req: NextRequest) {
       state.pvpEvents = state.pvpEvents.filter(ev => ev.targetUserId !== userId);
     }
 
-    const regionPlayers = Object.values(state.presenceByUserId).filter(
-      p => p.region === effectiveRegion && p.userId !== userId
-    );
+    const regionPlayers = getRegionPlayers(state, effectiveRegion, userId, now);
 
     return NextResponse.json({
       ok: true,
@@ -581,12 +652,22 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  // 7. Explicit Leave / Sign Out
-  if (action === 'leave_world') {
+  // 7. Explicit Leave / Sign Out / Page Close
+  if (action === 'leave' || action === 'leave_world') {
     const userId = String(body.userId || '').trim();
     if (userId) {
+      const pres = state.presenceByUserId[userId];
+      if (pres) {
+        state.positionsByUserId[userId] = {
+          tx: pres.tx,
+          ty: pres.ty,
+          dir: pres.dir || 'S',
+          updatedAt: now,
+        };
+      }
       delete state.presenceByUserId[userId];
       delete state.activeSessionByUserId[userId];
+      persistWorldState(state);
     }
     return NextResponse.json({ ok: true });
   }

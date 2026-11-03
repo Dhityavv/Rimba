@@ -54,6 +54,8 @@ type Avatar = {
   residenceStatus?: 'Warga' | 'Penduduk';
   homeRegion?: string;
   isAfk?: boolean;
+  isOfflineAfk?: boolean;
+  isMoving?: boolean;
   facing?: FacingDir8;
   lastSwingAt?: number;
   hp?: number;
@@ -235,16 +237,34 @@ function extractRegionNumber(homeRegion?: string): number {
   return m ? Math.max(1, Number(m[1])) : 1;
 }
 
-function resolveSupabaseConfig(): { url?: string; key?: string } {
-  const nextUrl =
-    typeof process !== 'undefined'
-      ? process.env?.NEXT_PUBLIC_SUPABASE_URL || process.env?.VITE_SUPABASE_URL
-      : undefined;
-  const nextKey =
-    typeof process !== 'undefined'
-      ? process.env?.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env?.VITE_SUPABASE_ANON_KEY
-      : undefined;
-  return { url: nextUrl, key: nextKey };
+function resolveSupabaseConfig(): { url: string; key: string } {
+  const fallbackUrl = 'https://eneblbbwzfmzgxpbhwth.supabase.co';
+  const fallbackKey = 'sb_publishable_QfAyOq7T0vtDsDD9uJFfIw_5XD5GuM0';
+
+  let url = '';
+  let key = '';
+
+  // 1. Next.js statically replaced client-side env
+  if (typeof process !== 'undefined' && process.env) {
+    url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
+    key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
+  }
+
+  // 2. Vite statically replaced client-side env
+  try {
+    const metaEnv = (import.meta as unknown as { env?: Record<string, string> })?.env;
+    if (metaEnv) {
+      if (!url) url = metaEnv.VITE_SUPABASE_URL || metaEnv.NEXT_PUBLIC_SUPABASE_URL || '';
+      if (!key) key = metaEnv.VITE_SUPABASE_ANON_KEY || metaEnv.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+    }
+  } catch {
+    // Ignore in non-vite runtimes
+  }
+
+  return {
+    url: url || fallbackUrl,
+    key: key || fallbackKey,
+  };
 }
 
 function makePoints(coords: Array<[number, number]>): Phaser.Math.Vector2[] {
@@ -329,18 +349,26 @@ class WorldScene extends Phaser.Scene {
     string,
     {
       userId: string;
+      citizenNumber?: number;
+      isRegistered: boolean;
+      name: string;
       container: Phaser.GameObjects.Container;
       bodyGroup: Phaser.GameObjects.Container;
       swordGroup: Phaser.GameObjects.Container;
       target: Phaser.Math.Vector2;
       label: Phaser.GameObjects.Text;
+      lastLabel: string;
       lastSeen: number;
       walkPhase: number;
       facing: FacingDir8;
       lastSwingAt: number;
       isSwinging: boolean;
+      isAfk: boolean;
+      isOfflineAfk: boolean;
     }
   >();
+  private wasMoving = false;
+  private mobileMoveDir = new Phaser.Math.Vector2();
   private graphics!: Phaser.GameObjects.Graphics;
   private obstacles = new Set<string>();
   private path: Phaser.Math.Vector2[] = [];
@@ -522,6 +550,7 @@ class WorldScene extends Phaser.Scene {
     if (character) {
       this.resumeCameraFollow();
     }
+    this.setupMobileDpad();
 
     const loadingPill = document.querySelector<HTMLElement>('#world-loading-pill');
     if (loadingPill) loadingPill.style.display = 'none';
@@ -545,6 +574,45 @@ class WorldScene extends Phaser.Scene {
       this.resumeCameraFollow();
     }
   };
+
+  private setupMobileDpad() {
+    const dpad = document.querySelector<HTMLElement>('#mobileDpad');
+    if (!dpad) return;
+
+    const btns = dpad.querySelectorAll<HTMLButtonElement>('.dpad-btn');
+    const setDir = (dir: string) => {
+      this.registerValidPlayerInput();
+      switch (dir) {
+        case 'N': this.mobileMoveDir.set(0, -1); break;
+        case 'S': this.mobileMoveDir.set(0, 1); break;
+        case 'W': this.mobileMoveDir.set(-1, 0); break;
+        case 'E': this.mobileMoveDir.set(1, 0); break;
+        default: this.mobileMoveDir.set(0, 0); break;
+      }
+    };
+
+    btns.forEach(btn => {
+      const dir = btn.dataset.dir || 'STOP';
+      const onStart = (e: Event) => {
+        e.preventDefault();
+        e.stopPropagation();
+        btn.classList.add('active');
+        setDir(dir);
+      };
+      const onEnd = (e: Event) => {
+        e.preventDefault();
+        btn.classList.remove('active');
+        if (this.mobileMoveDir.lengthSq() > 0) {
+          setDir('STOP');
+        }
+      };
+      btn.addEventListener('touchstart', onStart, { passive: false });
+      btn.addEventListener('touchend', onEnd, { passive: false });
+      btn.addEventListener('mousedown', onStart);
+      btn.addEventListener('mouseup', onEnd);
+      btn.addEventListener('mouseleave', onEnd);
+    });
+  }
 
   private resumeCameraFollow() {
     if (character && this.avatar && !this.isCameraFollowingAvatar && !this.isMobilePanMode) {
@@ -1066,18 +1134,18 @@ class WorldScene extends Phaser.Scene {
           fillColor = variation % 2 === 0 ? 0xb8b2a6 : 0xc4beb2;
         }
 
-        const diamond = makePoints([
-          [p.x, p.y - 16],
-          [p.x + 32, p.y],
-          [p.x, p.y + 16],
-          [p.x - 32, p.y],
-        ]);
         g.fillStyle(fillColor, 1);
-        g.fillPoints(diamond, true);
+        g.beginPath();
+        g.moveTo(p.x, p.y - 16);
+        g.lineTo(p.x + 32, p.y);
+        g.lineTo(p.x, p.y + 16);
+        g.lineTo(p.x - 32, p.y);
+        g.closePath();
+        g.fillPath();
 
         if (!compactMobile || central || road || d1 || d2 || arena) {
           g.lineStyle(1, water ? 0x8cd3ff : central ? 0xbdbbd0 : 0x95db8a, 0.16);
-          g.strokePoints(diamond, true);
+          g.strokePath();
         }
 
         if (water) {
@@ -1111,32 +1179,48 @@ class WorldScene extends Phaser.Scene {
     this.drawFishingPier(28, 14);
   }
 
+  private ensureTreeTextures() {
+    if (this.textures.exists('rimba_tree_pine')) return;
+
+    // Pre-bake Pine Tree texture (44x68) for batch rendering
+    const gPine = this.make.graphics({ x: 0, y: 0 });
+    gPine.fillStyle(0x2d5432, 0.24);
+    gPine.fillEllipse(22, 60, 36, 14);
+    gPine.fillStyle(0x855c42, 1);
+    gPine.fillRect(19, 44, 6, 17);
+    gPine.fillStyle(0x3f8f54, 1);
+    gPine.fillTriangle(3, 50, 22, 18, 41, 50);
+    gPine.fillStyle(0x4ea662, 1);
+    gPine.fillTriangle(6, 40, 22, 10, 38, 40);
+    gPine.fillStyle(0x68bf76, 1);
+    gPine.fillTriangle(10, 30, 22, 4, 34, 30);
+    gPine.generateTexture('rimba_tree_pine', 44, 68);
+    gPine.destroy();
+
+    // Pre-bake Round Tree texture (44x68) for batch rendering
+    const gRound = this.make.graphics({ x: 0, y: 0 });
+    gRound.fillStyle(0x2d5432, 0.24);
+    gRound.fillEllipse(22, 60, 36, 14);
+    gRound.fillStyle(0x855c42, 1);
+    gRound.fillRect(19, 44, 6, 17);
+    gRound.fillStyle(0x499c5b, 1);
+    gRound.fillCircle(15, 34, 12);
+    gRound.fillCircle(29, 34, 12);
+    gRound.fillStyle(0x62b870, 1);
+    gRound.fillCircle(22, 26, 14);
+    gRound.fillStyle(0x82d48b, 0.85);
+    gRound.fillCircle(19, 23, 9);
+    gRound.generateTexture('rimba_tree_round', 44, 68);
+    gRound.destroy();
+  }
+
   private drawPastelTree(tx: number, ty: number, x: number, y: number, variant: number) {
     this.obstacles.add(this.key(tx, ty));
-    const g = this.add.graphics();
-    g.fillStyle(0x2d5432, 0.22);
-    g.fillEllipse(x, y + 5, 36, 14);
-    g.fillStyle(0x855c42, 1);
-    g.fillRect(x - 3, y - 14, 6, 17);
-
-    if (variant % 2 === 0) {
-      g.fillStyle(0x3f8f54, 1);
-      g.fillTriangle(x - 19, y - 8, x, y - 42, x + 19, y - 8);
-      g.fillStyle(0x4ea662, 1);
-      g.fillTriangle(x - 16, y - 18, x, y - 50, x + 16, y - 18);
-      g.fillStyle(0x68bf76, 1);
-      g.fillTriangle(x - 12, y - 28, x, y - 56, x + 12, y - 28);
-    } else {
-      g.fillStyle(0x499c5b, 1);
-      g.fillCircle(x - 7, y - 24, 12);
-      g.fillCircle(x + 7, y - 24, 12);
-      g.fillStyle(0x62b870, 1);
-      g.fillCircle(x, y - 32, 14);
-      g.fillStyle(0x82d48b, 0.85);
-      g.fillCircle(x - 3, y - 35, 9);
-    }
-    g.setDepth(y + 12);
-    this.culledProps.push({ obj: g, wx: x, wy: y, pad: 110 });
+    this.ensureTreeTextures();
+    const texKey = variant % 2 === 0 ? 'rimba_tree_pine' : 'rimba_tree_round';
+    const img = this.add.image(x, y + 4, texKey).setOrigin(0.5, 0.88);
+    img.setDepth(y + 12);
+    this.culledProps.push({ obj: img, wx: x, wy: y, pad: 100 });
   }
 
   private drawCentralFountain(tx: number, ty: number) {
@@ -1804,6 +1888,11 @@ class WorldScene extends Phaser.Scene {
         (this.keys.W?.isDown || this.cursors.up.isDown ? 1 : 0);
     }
 
+    if (!inputBlocked && this.mobileMoveDir.lengthSq() > 0) {
+      dx = this.mobileMoveDir.x;
+      dy = this.mobileMoveDir.y;
+    }
+
     const keyboardActive = dx !== 0 || dy !== 0;
     if (keyboardActive) {
       this.registerValidPlayerInput();
@@ -2052,23 +2141,42 @@ class WorldScene extends Phaser.Scene {
 
     // Update & cull remote multiplayer avatars + distance-scaled labels
     for (const [id, other] of this.others.entries()) {
-      if (now - other.lastSeen > 18000) {
-        other.container.destroy();
-        this.others.delete(id);
-        continue;
+      if (now - other.lastSeen > 20000) {
+        if (other.isRegistered || other.citizenNumber) {
+          other.isAfk = true;
+          other.isOfflineAfk = true;
+          const displayLabel = `${sanitizePlayerLabelName(other.name, 'Warga')} (AFK)`;
+          if (other.lastLabel !== displayLabel) {
+            other.label.setText(displayLabel);
+            other.label.setBackgroundColor('rgba(120, 53, 15, 0.86)');
+            other.lastLabel = displayLabel;
+          }
+        } else {
+          other.container.destroy();
+          this.others.delete(id);
+          continue;
+        }
       }
       const dMove = Phaser.Math.Distance.Between(other.container.x, other.container.y, other.target.x, other.target.y);
       const stepDx = other.target.x - other.container.x;
       const stepDy = other.target.y - other.container.y;
-      other.container.x = Phaser.Math.Linear(other.container.x, other.target.x, Math.min(1, dt * 10));
-      other.container.y = Phaser.Math.Linear(other.container.y, other.target.y, Math.min(1, dt * 10));
+
+      if (dMove > 180) {
+        other.container.setPosition(other.target.x, other.target.y);
+      } else if (dMove > 0.8) {
+        const factor = Math.min(1, dt * (dMove > 24 ? 24 : 18));
+        other.container.x = Phaser.Math.Linear(other.container.x, other.target.x, factor);
+        other.container.y = Phaser.Math.Linear(other.container.y, other.target.y, factor);
+      }
       other.container.setDepth(other.container.y + 80);
 
-      if (dMove > 1.5) {
+      if (dMove > 1.2) {
         other.facing = vectorToFacing8(stepDx, stepDy, other.facing);
         this.applySwordIdlePose(other.swordGroup, other.facing, other.isSwinging);
         other.walkPhase += dt * 11;
         other.bodyGroup.y = -Math.abs(Math.sin(other.walkPhase)) * 2.5;
+      } else if (other.isOfflineAfk) {
+        other.bodyGroup.y = Math.sin(now * 0.0025 + ((other.citizenNumber ?? 1) * 2)) * 1.5;
       } else {
         other.bodyGroup.y = 0;
       }
@@ -2112,7 +2220,9 @@ class WorldScene extends Phaser.Scene {
       }
     }
 
-    if (now - this.lastBroadcast > 180) {
+    const isCurrentlyWalking = this.moving.lengthSq() > 0.01 || this.path.length > 0;
+    const minBroadcastInterval = isCurrentlyWalking ? 45 : 180;
+    if (now - this.lastBroadcast > minBroadcastInterval) {
       this.lastBroadcast = now;
       const movedDist = Phaser.Math.Distance.Between(
         this.worldPos.x,
@@ -2120,9 +2230,10 @@ class WorldScene extends Phaser.Scene {
         this.lastSentWorld.x,
         this.lastSentWorld.y
       );
-      if (movedDist > 2.5) {
+      if (movedDist > 0.8 || (this.wasMoving && !isCurrentlyWalking)) {
+        this.wasMoving = isCurrentlyWalking;
         this.broadcastOwnStateNow(false);
-      } else if (now - lastServerSyncAt > 1100) {
+      } else if (now - lastServerSyncAt > (!channel ? 130 : 3000)) {
         void syncWithWorldServer(false);
       }
     }
@@ -2138,6 +2249,7 @@ class WorldScene extends Phaser.Scene {
         ? 'Spectator'
         : 'Penonton';
     const inv = currentUser ? localBackend.getInventory(currentUser.id) : null;
+    const isCurrentlyWalking = this.moving.lengthSq() > 0.01 || this.path.length > 0;
     const payload: Avatar = {
       userId: currentUser?.id ?? clientId,
       clientId,
@@ -2150,7 +2262,9 @@ class WorldScene extends Phaser.Scene {
       modelId: character?.model_id,
       residenceStatus: character?.residence_status,
       homeRegion: character?.home_region ?? 'Wilayah 1',
-      isAfk: this.isAfkBotActive,
+      isAfk: this.isAfkBotActive || inv?.player_status === 'afk',
+      isOfflineAfk: false,
+      isMoving: isCurrentlyWalking,
       facing: this.facingDir,
       lastSwingAt: swingTriggered ? Date.now() : this.lastSwingBroadcastAt,
       hp: inv?.hp ?? 100,
@@ -2158,10 +2272,10 @@ class WorldScene extends Phaser.Scene {
     };
     if (channel && currentUser && character) {
       void channel.send({ type: 'broadcast', event: 'move', payload });
-      void channel.track(payload).catch(() => {});
+      // channel.track() omitted during active moves to prevent 2-second rate-limiting latency
     }
     localBroadcast?.postMessage({ type: 'move', payload });
-    void syncWithWorldServer(swingTriggered);
+    if (!supabase) void syncWithWorldServer(swingTriggered);
   }
 
   setPosition(tileX: number, tileY: number) {
@@ -2190,9 +2304,20 @@ class WorldScene extends Phaser.Scene {
       this.putOther(a);
     }
     for (const [id, item] of this.others.entries()) {
-      if (!activeIds.has(id) && Date.now() - item.lastSeen > 6000) {
-        item.container.destroy();
-        this.others.delete(id);
+      if (!activeIds.has(id)) {
+        if (item.citizenNumber || item.isRegistered) {
+          item.isAfk = true;
+          item.isOfflineAfk = true;
+          const displayLabel = `${sanitizePlayerLabelName(item.name, 'Warga')} (AFK)`;
+          if (item.lastLabel !== displayLabel) {
+            item.label.setText(displayLabel);
+            item.label.setBackgroundColor('rgba(120, 53, 15, 0.86)');
+            item.lastLabel = displayLabel;
+          }
+        } else if (Date.now() - item.lastSeen > 8000) {
+          item.container.destroy();
+          this.others.delete(id);
+        }
       }
     }
   }
@@ -2201,7 +2326,8 @@ class WorldScene extends Phaser.Scene {
     const id = a.userId || a.clientId || '';
     if (!id || id === currentUser?.id || a.clientId === clientId) return;
     const safeName = sanitizePlayerLabelName(a.name, 'Warga');
-    const displayLabel = a.isAfk ? `${safeName} (AFK)` : safeName;
+    const isAfkMode = Boolean(a.isAfk || a.isOfflineAfk);
+    const displayLabel = isAfkMode ? `${safeName} (AFK)` : safeName;
     const p = this.tileToWorld(a.tx, a.ty);
     const dir: FacingDir8 = a.facing ?? 'S';
     let item = this.others.get(id);
@@ -2217,7 +2343,7 @@ class WorldScene extends Phaser.Scene {
           fontSize: '11px',
           fontStyle: 'bold',
           color: '#ffffff',
-          backgroundColor: a.isAfk ? 'rgba(120, 53, 15, 0.86)' : 'rgba(15, 23, 42, 0.78)',
+          backgroundColor: isAfkMode ? 'rgba(120, 53, 15, 0.86)' : 'rgba(15, 23, 42, 0.78)',
           stroke: '#0f172a',
           strokeThickness: 3,
           padding: { x: 6, y: 2 },
@@ -2227,22 +2353,33 @@ class WorldScene extends Phaser.Scene {
       const container = this.add.container(p.x, p.y, [shadow, bodyGroup, label]).setDepth(p.y + 80);
       item = {
         userId: a.userId,
+        citizenNumber: a.citizenNumber,
+        isRegistered: Boolean(a.citizenNumber || (a.userId && (a.userId.startsWith('user-') || a.userId.startsWith('guest-') || a.userId.length > 20))),
+        name: safeName,
         container,
         bodyGroup,
         swordGroup,
         target: new Phaser.Math.Vector2(p.x, p.y),
         label,
+        lastLabel: displayLabel,
         lastSeen: Date.now(),
         walkPhase: 0,
         facing: dir,
         lastSwingAt: a.lastSwingAt ?? 0,
         isSwinging: false,
+        isAfk: isAfkMode,
+        isOfflineAfk: Boolean(a.isOfflineAfk),
       };
       this.others.set(id, item);
     }
     item.target.set(p.x, p.y);
-    item.label.setText(displayLabel);
-    item.label.setBackgroundColor(a.isAfk ? 'rgba(120, 53, 15, 0.86)' : 'rgba(15, 23, 42, 0.78)');
+    if (item.lastLabel !== displayLabel) {
+      item.label.setText(displayLabel);
+      item.label.setBackgroundColor(isAfkMode ? 'rgba(120, 53, 15, 0.86)' : 'rgba(15, 23, 42, 0.78)');
+      item.lastLabel = displayLabel;
+    }
+    item.isAfk = isAfkMode;
+    item.isOfflineAfk = Boolean(a.isOfflineAfk);
     item.lastSeen = Date.now();
     if (a.facing && a.facing !== item.facing) {
       item.facing = a.facing;
@@ -2483,6 +2620,13 @@ function shell() {
         <span id="ctrlInteract">${escapeHtml(dict.controlsInteract)}</span>
         <span id="ctrlInv">${escapeHtml(dict.controlsInventory)}</span>
         <span id="ctrlCam">${escapeHtml(dict.controlsCamera)}</span>
+      </div>
+      <div class="mobile-dpad" id="mobileDpad" aria-label="Mobile Movement D-Pad">
+        <button type="button" class="dpad-btn dpad-up" data-dir="N">▲</button>
+        <button type="button" class="dpad-btn dpad-left" data-dir="W">◀</button>
+        <button type="button" class="dpad-btn dpad-center" data-dir="STOP">●</button>
+        <button type="button" class="dpad-btn dpad-right" data-dir="E">▶</button>
+        <button type="button" class="dpad-btn dpad-down" data-dir="S">▼</button>
       </div>
       <div id="dialog-root"></div>
     </div>
@@ -2920,39 +3064,9 @@ function openKtp() {
 async function loadCharacter() {
   character = null;
   if (currentUser) {
-    // 1. Check authoritative server first so multi-device login with same account loads exact same character & position
-    try {
-      const res = await fetch('/api/world', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'get_character',
-          userId: currentUser.id,
-          sessionId: clientId,
-        }),
-      });
-      if (res.ok) {
-        const data = (await res.json()) as {
-          character?: Character | null;
-          position?: { tile_x: number; tile_y: number };
-        };
-        if (data.character) {
-          character = localBackend.syncServerCharacter(currentUser.id, data.character);
-          if (data.position) {
-            localBackend.savePosition(currentUser.id, data.position.tile_x, data.position.tile_y);
-            ownTilePosition = { x: data.position.tile_x, y: data.position.tile_y };
-          }
-        }
-      }
-    } catch {
-      // Fallback to local/Supabase below
-    }
-
-    if (!character) {
-      const localChar = localBackend.getCharacter(currentUser.id);
-      if (localChar) {
-        character = localChar;
-      } else if (supabase) {
+    // Cloud character data must be read from Supabase first. A Vercel function's
+    // /tmp filesystem is not shared between serverless instances or devices.
+    if (supabase) {
         try {
           const { data } = await supabase.from('characters').select('*').eq('user_id', currentUser.id).maybeSingle();
           if (data) {
@@ -2966,8 +3080,30 @@ async function loadCharacter() {
             });
           }
         } catch {
-          // Fallback already checked
+          // A local record is still useful during local development.
         }
+    }
+
+    if (!character) {
+      const localChar = localBackend.getCharacter(currentUser.id);
+      if (localChar) character = localChar;
+    }
+
+    if (!character && !supabase) {
+      try {
+        const res = await fetch(`/api/world?userId=${encodeURIComponent(currentUser.id)}&sessionId=${encodeURIComponent(clientId)}`, { cache: 'no-store' });
+        if (res.ok) {
+          const data = (await res.json()) as { character?: Character | null; position?: { tx: number; ty: number } };
+          if (data.character) {
+            character = localBackend.syncServerCharacter(currentUser.id, data.character);
+            if (data.position) {
+              localBackend.savePosition(currentUser.id, data.position.tx, data.position.ty);
+              ownTilePosition = { x: data.position.tx, y: data.position.ty };
+            }
+          }
+        }
+      } catch {
+        // The fallback is intentionally best-effort and is not used for live deployment.
       }
     }
   }
@@ -2995,8 +3131,9 @@ async function joinWorld() {
     };
   }
 
-  // Trigger immediate server sync so cross-device players in the same Region appear right away
-  void syncWithWorldServer(false);
+  // The HTTP fallback exists only for local development. Hosted multiplayer uses
+  // the Supabase region channel below, shared by every device.
+  if (!supabase) void syncWithWorldServer(false);
 
   if (!supabase) return;
   if (channel && currentSubscribedRegion !== channelTopic) {
@@ -3037,7 +3174,7 @@ async function joinWorld() {
         lastSwingAt: raw.lastSwingAt ? Number(raw.lastSwingAt) : 0,
       };
       latestMoves.set(avatar.userId || avatar.clientId!, avatar);
-      world?.setOnline(mergedAvatars());
+      world?.putOther(avatar);
     }
   });
   await channel.subscribe(async status => {
@@ -3089,19 +3226,47 @@ function getPresenceAvatars(): Avatar[] {
 
 function mergedAvatars(): Avatar[] {
   const combined = new Map<string, Avatar>();
+  const activeRegion = character?.home_region || 'Wilayah 1';
+
+  // 1. Local registered characters (persist in AFK mode when offline)
+  const localAfk = localBackend.getRegisteredAfkCitizens(activeRegion, currentUser?.id);
+  for (const cit of localAfk) {
+    const wp = cit.waypoints[0] ?? { x: 28, y: 30 };
+    combined.set(cit.id, {
+      userId: cit.id,
+      clientId: cit.id,
+      name: cit.display_name,
+      tx: wp.x,
+      ty: wp.y,
+      color: cit.avatar_color ?? '#5f9e6e',
+      hatColor: cit.hat_color,
+      modelId: cit.model_id,
+      homeRegion: activeRegion,
+      isAfk: true,
+      isOfflineAfk: true,
+      facing: 'S',
+    });
+  }
+
+  // 2. Server registered characters & online presence from /api/world
   for (const [uid, srvAvatar] of serverMoves) {
     combined.set(uid, srvAvatar);
   }
+
+  // 3. Supabase presence avatars (currently connected)
   for (const presAvatar of getPresenceAvatars()) {
     const key = presAvatar.userId || presAvatar.clientId!;
     combined.set(key, latestMoves.get(key) ?? presAvatar);
   }
+
+  // 4. Live movement broadcasts (overrides static/AFK positions immediately)
   for (const [id, moveAvatar] of latestMoves) {
     const existing = combined.get(id);
-    if (!existing || (moveAvatar.lastSwingAt ?? 0) >= (existing.lastSwingAt ?? 0)) {
+    if (!existing || (moveAvatar.lastSwingAt ?? 0) >= (existing.lastSwingAt ?? 0) || !existing.isAfk) {
       combined.set(id, moveAvatar);
     }
   }
+
   return [...combined.values()];
 }
 
@@ -3138,12 +3303,21 @@ export function bootRimbaGame() {
     width: window.innerWidth,
     height: window.innerHeight,
     backgroundColor: '#76bf6d',
-    scale: { mode: Phaser.Scale.RESIZE, autoCenter: Phaser.Scale.CENTER_BOTH },
+    scale: {
+      mode: Phaser.Scale.RESIZE,
+      autoCenter: Phaser.Scale.CENTER_BOTH,
+    },
     scene: [WorldScene],
     render: {
-      antialias: !compactMobile,
-      roundPixels: compactMobile,
+      antialias: false,
+      roundPixels: true,
       powerPreference: 'high-performance',
+      batchSize: compactMobile ? 2048 : 4096,
+      maxTextures: compactMobile ? 8 : 16,
+    } as Phaser.Types.Core.RenderConfig,
+    fps: {
+      target: 60,
+      min: 30,
     },
   });
 
