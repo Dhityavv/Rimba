@@ -11,7 +11,9 @@ import {
   CHARACTER_MODELS,
   GAME_CONFIG,
   OUTFIT_CATALOG,
+  STARTER_SWORD_SPEC,
   WORLD_FACILITIES,
+  formatCitizenNumber,
   getCharacterModelSpec,
   getWibTimeInfo,
   isArenaTile,
@@ -26,6 +28,7 @@ import {
   isWoodWorkAreaTile,
   localBackend,
   renderChibiCharacterSvg,
+  renderStarterSwordSvg,
   sanitizePlayerLabelName,
   validateAndModerateCharacterName,
   type AfkActivityType,
@@ -36,16 +39,33 @@ import {
 } from './localStore';
 import { mountPhaseTwo } from './phase2';
 
+export type FacingDir8 = 'N' | 'NE' | 'E' | 'SE' | 'S' | 'SW' | 'W' | 'NW';
+
 type Avatar = {
   userId: string;
   clientId?: string;
+  citizenNumber?: number;
   name: string;
   tx: number;
   ty: number;
   color: string;
   hatColor?: string;
   modelId?: string;
+  residenceStatus?: 'Warga' | 'Penduduk';
+  homeRegion?: string;
   isAfk?: boolean;
+  facing?: FacingDir8;
+  lastSwingAt?: number;
+  hp?: number;
+  maxHp?: number;
+};
+
+type ServerRegionSummary = {
+  regionName: string;
+  totalRegisteredInRegion: number;
+  totalPermanentInRegion: number;
+  onlineInRegion: number;
+  capacity: number;
 };
 
 type DungeonMonsterConfig = {
@@ -169,6 +189,52 @@ const AFK_WAYPOINTS: Record<AfkActivityType, Array<{ x: number; y: number }>> = 
   ],
 };
 
+function vectorToFacing8(dx: number, dy: number, fallback: FacingDir8 = 'S'): FacingDir8 {
+  if (Math.abs(dx) < 0.001 && Math.abs(dy) < 0.001) return fallback;
+  const deg = (Math.atan2(dy, dx) * 180) / Math.PI; // -180..180, 0 = East, 90 = South
+  if (deg >= -22.5 && deg < 22.5) return 'E';
+  if (deg >= 22.5 && deg < 67.5) return 'SE';
+  if (deg >= 67.5 && deg < 112.5) return 'S';
+  if (deg >= 112.5 && deg < 157.5) return 'SW';
+  if (deg >= 157.5 || deg < -157.5) return 'W';
+  if (deg >= -157.5 && deg < -112.5) return 'NW';
+  if (deg >= -112.5 && deg < -67.5) return 'N';
+  return 'NE';
+}
+
+function getSwordPoseForDirection(dir: FacingDir8): {
+  handX: number;
+  handY: number;
+  idleAngleDeg: number;
+  windupAngleDeg: number;
+  slashEndAngleDeg: number;
+  slashCenterRad: number;
+} {
+  switch (dir) {
+    case 'E':
+      return { handX: 11, handY: -18, idleAngleDeg: 28, windupAngleDeg: -48, slashEndAngleDeg: 105, slashCenterRad: 0 };
+    case 'SE':
+      return { handX: 10, handY: -16, idleAngleDeg: 45, windupAngleDeg: -25, slashEndAngleDeg: 128, slashCenterRad: Math.PI / 4 };
+    case 'S':
+      return { handX: 9, handY: -15, idleAngleDeg: 65, windupAngleDeg: -10, slashEndAngleDeg: 155, slashCenterRad: Math.PI / 2 };
+    case 'SW':
+      return { handX: -10, handY: -16, idleAngleDeg: -45, windupAngleDeg: 25, slashEndAngleDeg: -128, slashCenterRad: (3 * Math.PI) / 4 };
+    case 'W':
+      return { handX: -11, handY: -18, idleAngleDeg: -28, windupAngleDeg: 48, slashEndAngleDeg: -105, slashCenterRad: Math.PI };
+    case 'NW':
+      return { handX: -10, handY: -20, idleAngleDeg: -18, windupAngleDeg: 55, slashEndAngleDeg: -92, slashCenterRad: (-3 * Math.PI) / 4 };
+    case 'N':
+      return { handX: 9, handY: -21, idleAngleDeg: 10, windupAngleDeg: -65, slashEndAngleDeg: 78, slashCenterRad: -Math.PI / 2 };
+    case 'NE':
+      return { handX: 10, handY: -20, idleAngleDeg: 18, windupAngleDeg: -55, slashEndAngleDeg: 92, slashCenterRad: -Math.PI / 4 };
+  }
+}
+
+function extractRegionNumber(homeRegion?: string): number {
+  const m = String(homeRegion ?? 'Wilayah 1').match(/(\d+)/);
+  return m ? Math.max(1, Number(m[1])) : 1;
+}
+
 function resolveSupabaseConfig(): { url?: string; key?: string } {
   const nextUrl =
     typeof process !== 'undefined'
@@ -195,13 +261,25 @@ let currentLang: Lang = getSavedLang();
 let currentUser: LocalUser | null = null;
 let character: Character | null = null;
 let channel: RealtimeChannel | null = null;
+let currentSubscribedRegion = '';
 let localBroadcast: BroadcastChannel | null = null;
 let world: WorldScene | null = null;
 let ownTilePosition = { x: GAME_CONFIG.CENTRAL_SPAWN.x, y: GAME_CONFIG.CENTRAL_SPAWN.y };
 let initialized = false;
+let sessionConflictLocked = false;
+let serverRegionSummary: ServerRegionSummary | null = null;
+let lastServerSyncAt = 0;
+let serverSyncInFlight = false;
+
 const clientId =
   typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `client-${Date.now()}`;
 const latestMoves = new Map<string, Avatar>();
+const serverMoves = new Map<string, Avatar>();
+
+function isCompactMobileViewport(): boolean {
+  if (typeof window === 'undefined') return false;
+  return window.innerWidth <= 768 || window.matchMedia?.('(pointer: coarse)').matches;
+}
 
 function t() {
   return TEXT[currentLang];
@@ -232,18 +310,35 @@ class WorldScene extends Phaser.Scene {
   private avatar!: Phaser.GameObjects.Container;
   private avatarShadow!: Phaser.GameObjects.Ellipse;
   private avatarBodyGroup!: Phaser.GameObjects.Container;
+  private avatarSwordGroup!: Phaser.GameObjects.Container;
   private nameTag!: Phaser.GameObjects.Text;
   private targetRing!: Phaser.GameObjects.Ellipse;
   private attackSlashGraphic!: Phaser.GameObjects.Graphics;
+  private facingDir: FacingDir8 = 'S';
+  private isSwingingSword = false;
+  private lastSwingBroadcastAt = 0;
+  private isMobilePanMode = false;
+  private lastCullCheckAt = 0;
+  private culledProps: Array<{
+    obj: Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.Visible;
+    wx: number;
+    wy: number;
+    pad: number;
+  }> = [];
   private others = new Map<
     string,
     {
+      userId: string;
       container: Phaser.GameObjects.Container;
       bodyGroup: Phaser.GameObjects.Container;
+      swordGroup: Phaser.GameObjects.Container;
       target: Phaser.Math.Vector2;
       label: Phaser.GameObjects.Text;
       lastSeen: number;
       walkPhase: number;
+      facing: FacingDir8;
+      lastSwingAt: number;
+      isSwinging: boolean;
     }
   >();
   private graphics!: Phaser.GameObjects.Graphics;
@@ -306,10 +401,14 @@ class WorldScene extends Phaser.Scene {
 
     this.graphics = this.add.graphics();
     this.attackSlashGraphic = this.add.graphics().setDepth(9999);
-    this.cameras.main.setZoom(1.04);
+    const defaultZoom = isCompactMobileViewport() ? 0.88 : 1.04;
+    this.cameras.main.setZoom(defaultZoom);
     // 56x56 isometric diamond spans X: [-1792..+1792], Y: [0..1792]
     this.cameras.main.setBounds(-1950, -260, 3900, 2250);
     this.cameras.main.centerOn(spawn.x, spawn.y);
+
+    // Enable 2-finger touch gesture support on mobile devices
+    this.input.addPointer(1);
 
     // Disable browser right-click context menu on the game canvas so Right-Click Hold & Drag works smoothly
     this.input.mouse?.disableContextMenu();
@@ -336,8 +435,10 @@ class WorldScene extends Phaser.Scene {
     this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
       if (document.querySelector('#scrim') || document.querySelector('#phase2-scrim')) return;
 
-      // Section 12: Right-Click Hold & Drag pans the camera at ANY time (alive, AFK, downed, waiting for revive, or spectator)
-      if (p.rightButtonDown() || !character) {
+      const twoFingerTouch = this.input.pointer1?.isDown && this.input.pointer2?.isDown;
+
+      // Section 12 & Mobile Gesture: Right-Click Hold & Drag, 2-Finger Touch Drag, or Mobile Pan Mode pans camera
+      if (p.rightButtonDown() || twoFingerTouch || this.isMobilePanMode || !character) {
         this.isDraggingCam = true;
         this.dragStart.set(p.x, p.y);
         if (this.isCameraFollowingAvatar) {
@@ -347,7 +448,9 @@ class WorldScene extends Phaser.Scene {
         return;
       }
 
-      // Left-Click: Walk to clicked point / interact with building or resource node (NOT primary attack)
+      if (sessionConflictLocked) return;
+
+      // Left-Click / Single Tap: Walk to clicked point / interact with building or resource node
       if (!p.leftButtonDown()) return;
 
       // Check death or waiting-revive lock
@@ -420,14 +523,31 @@ class WorldScene extends Phaser.Scene {
       this.resumeCameraFollow();
     }
 
+    const loadingPill = document.querySelector<HTMLElement>('#world-loading-pill');
+    if (loadingPill) loadingPill.style.display = 'none';
+
     window.addEventListener('character-change', this.onCharacterChange);
     window.addEventListener('rimba-lang-change', this.refreshMapLanguage);
     window.addEventListener('rimba-player-valid-input', this.registerValidPlayerInput);
+    window.addEventListener('rimba-trigger-sword-swing', this.onTriggerSwordSwingEvent);
+    window.addEventListener('rimba-toggle-pan-mode', this.onTogglePanMode);
     document.addEventListener('visibilitychange', this.onVisibilityChange);
   }
 
+  private onTriggerSwordSwingEvent = () => {
+    this.triggerSpacebarAttack();
+  };
+
+  private onTogglePanMode = () => {
+    this.isMobilePanMode = !this.isMobilePanMode;
+    window.dispatchEvent(new CustomEvent('rimba-pan-mode-changed', { detail: { active: this.isMobilePanMode } }));
+    if (!this.isMobilePanMode && character) {
+      this.resumeCameraFollow();
+    }
+  };
+
   private resumeCameraFollow() {
-    if (character && this.avatar && !this.isCameraFollowingAvatar) {
+    if (character && this.avatar && !this.isCameraFollowingAvatar && !this.isMobilePanMode) {
       this.cameras.main.startFollow(this.avatar, true, 0.12, 0.12);
       this.isCameraFollowingAvatar = true;
     }
@@ -562,6 +682,180 @@ class WorldScene extends Phaser.Scene {
     return this.add.container(0, 0, [g]);
   }
 
+  /**
+   * Builds the original, smooth, clean isometric Pedang Pemula Rimba (Rimba Beginner Sword):
+   * - Light steel blade (#e2e8f0 / #94a3b8) with bright ridge (#f8fafc)
+   * - Bronze crossguard (#d97706 / #fbbf24)
+   * - Brown wooden grip (#78350f) and bronze pommel (#b45309)
+   * - Clean dark silhouette outline (#231815)
+   * Pivot (0, 0) is at the wooden grip so rotating the container pivots naturally from the hand.
+   */
+  private buildStarterSwordGraphic(): Phaser.GameObjects.Container {
+    const g = this.add.graphics();
+    const outline = 0x231815;
+
+    // 1. Dark silhouette outline for entire sword (pommel, grip, crossguard, tapered blade)
+    g.fillStyle(outline, 1);
+    g.fillCircle(0, 5.5, 3.2);
+    g.fillRoundedRect(-2.4, -2, 4.8, 7.5, 1.5);
+    g.fillRoundedRect(-6.5, -4.6, 13, 3.8, 1.6);
+    g.fillPoints(
+      makePoints([
+        [-3.4, -4.2],
+        [-2.8, -22],
+        [0, -27.5],
+        [2.8, -22],
+        [3.4, -4.2],
+      ]),
+      true
+    );
+
+    // 2. Bronze Pommel & Brown Wooden Grip
+    g.fillStyle(0xb45309, 1);
+    g.fillCircle(0, 5.4, 2.0);
+    g.fillStyle(0x78350f, 1);
+    g.fillRect(-1.4, -1.5, 2.8, 6.2);
+    g.fillStyle(0x9a5b32, 1);
+    g.fillRect(-0.8, -1.2, 1.2, 5.4);
+
+    // 3. Bronze Crossguard
+    g.fillStyle(0xd97706, 1);
+    g.fillRoundedRect(-5.3, -3.8, 10.6, 2.4, 1.0);
+    g.fillStyle(0xfbbf24, 1);
+    g.fillRect(-3.8, -3.5, 7.6, 1.0);
+
+    // 4. Smooth Light-Steel Blade (left bevel + right shadow bevel + center fuller highlight)
+    g.fillStyle(0xe2e8f0, 1);
+    g.fillPoints(
+      makePoints([
+        [-2.2, -4.0],
+        [-1.8, -21.5],
+        [0, -25.8],
+        [0, -4.0],
+      ]),
+      true
+    );
+    g.fillStyle(0x94a3b8, 1);
+    g.fillPoints(
+      makePoints([
+        [0, -4.0],
+        [0, -25.8],
+        [1.8, -21.5],
+        [2.2, -4.0],
+      ]),
+      true
+    );
+    g.fillStyle(0xf8fafc, 0.95);
+    g.fillRect(-0.45, -21, 0.9, 15.5);
+
+    return this.add.container(9, -15, [g]);
+  }
+
+  private applySwordIdlePose(swordGroup: Phaser.GameObjects.Container | undefined, dir: FacingDir8, isSwinging = false) {
+    if (!swordGroup || isSwinging) return;
+    const pose = getSwordPoseForDirection(dir);
+    swordGroup.setPosition(pose.handX, pose.handY);
+    swordGroup.setAngle(pose.idleAngleDeg);
+  }
+
+  private playSwordSwingAnimation(
+    swordGroup: Phaser.GameObjects.Container | undefined,
+    bodyGroup: Phaser.GameObjects.Container | undefined,
+    dir: FacingDir8,
+    worldX: number,
+    worldY: number,
+    onDone?: () => void
+  ) {
+    if (!swordGroup) {
+      onDone?.();
+      return;
+    }
+    const pose = getSwordPoseForDirection(dir);
+    swordGroup.setPosition(pose.handX, pose.handY);
+    this.tweens.killTweensOf(swordGroup);
+
+    // Stage 1: Brief windup preparation (65ms)
+    this.tweens.add({
+      targets: swordGroup,
+      angle: pose.windupAngleDeg,
+      x: pose.handX * 0.92,
+      y: pose.handY - 2,
+      duration: 65,
+      ease: 'Sine.easeOut',
+      onComplete: () => {
+        // Draw directional crescent slash arc aligned with 8-direction facing
+        this.drawDirectionalSlashArc(worldX, worldY - 16, pose.slashCenterRad);
+
+        // Stage 2: Fast responsive slash sweep (135ms)
+        this.tweens.add({
+          targets: swordGroup,
+          angle: pose.slashEndAngleDeg,
+          x: pose.handX * 1.12,
+          y: pose.handY + 1,
+          duration: 135,
+          ease: 'Cubic.easeOut',
+          onComplete: () => {
+            // Stage 3: Smooth recovery back to idle stance (130ms)
+            this.tweens.add({
+              targets: swordGroup,
+              angle: pose.idleAngleDeg,
+              x: pose.handX,
+              y: pose.handY,
+              duration: 130,
+              ease: 'Sine.easeInOut',
+              onComplete: () => {
+                onDone?.();
+              },
+            });
+          },
+        });
+      },
+    });
+
+    if (bodyGroup) {
+      this.tweens.add({
+        targets: bodyGroup,
+        scaleX: 1.05,
+        scaleY: 0.96,
+        duration: 90,
+        yoyo: true,
+        ease: 'Quad.easeOut',
+      });
+    }
+  }
+
+  private drawDirectionalSlashArc(cx: number, cy: number, centerRad: number) {
+    this.attackSlashGraphic.clear();
+    const rx = 38;
+    const ry = 22;
+    const halfSpan = 1.08;
+    const steps = 14;
+
+    const outerPts: Phaser.Math.Vector2[] = [];
+    const innerPts: Phaser.Math.Vector2[] = [];
+    for (let i = 0; i <= steps; i++) {
+      const tRatio = i / steps;
+      const ang = centerRad - halfSpan + tRatio * (halfSpan * 2);
+      const taper = Math.sin(tRatio * Math.PI);
+      const rOutX = rx + taper * 5;
+      const rOutY = ry + taper * 3;
+      const rInX = rx - taper * 7;
+      const rInY = ry - taper * 4;
+      outerPts.push(new Phaser.Math.Vector2(cx + Math.cos(ang) * rOutX, cy + Math.sin(ang) * rOutY));
+      innerPts.unshift(new Phaser.Math.Vector2(cx + Math.cos(ang) * rInX, cy + Math.sin(ang) * rInY));
+    }
+
+    const crescent = [...outerPts, ...innerPts];
+    this.attackSlashGraphic.fillStyle(0xfef08a, 0.45);
+    this.attackSlashGraphic.fillPoints(crescent, true);
+    this.attackSlashGraphic.lineStyle(2.5, 0xf8fafc, 0.92);
+    this.attackSlashGraphic.strokePoints(outerPts, false);
+
+    this.time.delayedCall(155, () => {
+      this.attackSlashGraphic.clear();
+    });
+  }
+
   private onVisibilityChange = () => {
     if (document.hidden && currentUser && character) {
       this.enterAfkBotMode();
@@ -670,7 +964,9 @@ class WorldScene extends Phaser.Scene {
   };
 
   public centerCameraOnPlayer() {
-    this.cameras.main.setZoom(1.04);
+    this.isMobilePanMode = false;
+    window.dispatchEvent(new CustomEvent('rimba-pan-mode-changed', { detail: { active: false } }));
+    this.cameras.main.setZoom(isCompactMobileViewport() ? 0.88 : 1.04);
     if (character && this.avatar) {
       this.cameras.main.startFollow(this.avatar, true, 0.12, 0.12);
       this.isCameraFollowingAvatar = true;
@@ -728,6 +1024,7 @@ class WorldScene extends Phaser.Scene {
   private drawPastelWorldMap() {
     const g = this.graphics;
     const size = GAME_CONFIG.MAP_SIZE;
+    const compactMobile = isCompactMobileViewport();
 
     for (let x = 0; x < size; x++) {
       for (let y = 0; y < size; y++) {
@@ -778,11 +1075,13 @@ class WorldScene extends Phaser.Scene {
         g.fillStyle(fillColor, 1);
         g.fillPoints(diamond, true);
 
-        g.lineStyle(1, water ? 0x8cd3ff : central ? 0xbdbbd0 : 0x95db8a, 0.16);
-        g.strokePoints(diamond, true);
+        if (!compactMobile || central || road || d1 || d2 || arena) {
+          g.lineStyle(1, water ? 0x8cd3ff : central ? 0xbdbbd0 : 0x95db8a, 0.16);
+          g.strokePoints(diamond, true);
+        }
 
         if (water) {
-          if (variation === 0) {
+          if (variation === 0 && !compactMobile) {
             g.lineStyle(1.5, 0xdff2ff, 0.55);
             g.strokeEllipse(p.x, p.y, 18, 7);
           }
@@ -797,7 +1096,12 @@ class WorldScene extends Phaser.Scene {
         }
 
         if (isDecorativeTreeTile(x, y)) {
-          this.drawPastelTree(x, y, p.x, p.y, variation);
+          // Adaptive density on mobile while preserving obstacle collision map
+          if (compactMobile && (x + y) % 2 === 1) {
+            this.obstacles.add(this.key(x, y));
+          } else {
+            this.drawPastelTree(x, y, p.x, p.y, variation);
+          }
         }
       }
     }
@@ -832,6 +1136,7 @@ class WorldScene extends Phaser.Scene {
       g.fillCircle(x - 3, y - 35, 9);
     }
     g.setDepth(y + 12);
+    this.culledProps.push({ obj: g, wx: x, wy: y, pad: 110 });
   }
 
   private drawCentralFountain(tx: number, ty: number) {
@@ -851,6 +1156,7 @@ class WorldScene extends Phaser.Scene {
     g.fillStyle(0x7dd3fc, 0.9);
     g.fillTriangle(p.x - 4, p.y - 12, p.x, p.y - 44, p.x + 4, p.y - 12);
     g.setDepth(p.y + 18);
+    this.culledProps.push({ obj: g, wx: p.x, wy: p.y, pad: 140 });
   }
 
   private drawLighthouse(tx: number, ty: number) {
@@ -869,6 +1175,7 @@ class WorldScene extends Phaser.Scene {
     g.fillStyle(0xdc2626, 1);
     g.fillTriangle(p.x - 13, p.y - 64, p.x, p.y - 78, p.x + 13, p.y - 64);
     g.setDepth(p.y + 25);
+    this.culledProps.push({ obj: g, wx: p.x, wy: p.y, pad: 150 });
   }
 
   private drawFishingPier(tx: number, ty: number) {
@@ -879,6 +1186,7 @@ class WorldScene extends Phaser.Scene {
     g.lineStyle(2, 0x5c3824, 0.8);
     g.strokeRect(p.x - 36, p.y - 12, 72, 22);
     g.setDepth(p.y - 2);
+    this.culledProps.push({ obj: g, wx: p.x, wy: p.y, pad: 130 });
   }
 
   private drawArchitecturalBuilding(
@@ -983,6 +1291,7 @@ class WorldScene extends Phaser.Scene {
     }
 
     g.setDepth(p.y + 24);
+    this.culledProps.push({ obj: g, wx: p.x, wy: p.y, pad: 170 });
 
     const textObj = this.add
       .text(p.x, p.y + 20, currentLang === 'en' ? fac.name_en : fac.name_id, {
@@ -996,6 +1305,7 @@ class WorldScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setDepth(p.y + 90);
 
+    this.culledProps.push({ obj: textObj, wx: p.x, wy: p.y, pad: 170 });
     this.facilityLabels.push({ textObj, name_id: fac.name_id, name_en: fac.name_en });
   }
 
@@ -1025,6 +1335,7 @@ class WorldScene extends Phaser.Scene {
           })
           .setOrigin(0.5)
           .setDepth(p.y + 85);
+        this.culledProps.push({ obj: txt, wx: p.x, wy: p.y, pad: 170 });
         this.facilityLabels.push({ textObj: txt, name_id: fac.name_id, name_en: fac.name_en });
       }
     }
@@ -1055,9 +1366,10 @@ class WorldScene extends Phaser.Scene {
         g.fillCircle(p.x, p.y - 4, 5);
       }
       g.setDepth(p.y + 15);
+      this.culledProps.push({ obj: g, wx: p.x, wy: p.y, pad: 120 });
 
       const badge = node.node_type === 'wood' ? '🪵 [F]' : node.node_type === 'stone' ? '⛏️ [F]' : '🎣 [F]';
-      this.add
+      const badgeTxt = this.add
         .text(p.x, p.y + 14, badge, {
           fontFamily: 'Plus Jakarta Sans, Arial',
           fontSize: '9px',
@@ -1068,6 +1380,7 @@ class WorldScene extends Phaser.Scene {
         })
         .setOrigin(0.5)
         .setDepth(p.y + 80);
+      this.culledProps.push({ obj: badgeTxt, wx: p.x, wy: p.y, pad: 120 });
     }
   }
 
@@ -1208,6 +1521,12 @@ class WorldScene extends Phaser.Scene {
       hatHex
     );
 
+    // Every character with a KTP carries Pedang Pemula Rimba in Hotbar Slot 1
+    this.avatarSwordGroup = this.buildStarterSwordGraphic();
+    this.avatarSwordGroup.setVisible(Boolean(character));
+    this.applySwordIdlePose(this.avatarSwordGroup, this.facingDir, false);
+    this.avatarBodyGroup.add(this.avatarSwordGroup);
+
     const cleanPlayerName = character
       ? sanitizePlayerLabelName(character.display_name, 'Warga')
       : currentLang === 'en'
@@ -1246,66 +1565,111 @@ class WorldScene extends Phaser.Scene {
     }
   };
 
-  private triggerSpacebarAttack() {
-    if (!currentUser || !character) return;
+  public triggerSpacebarAttack() {
+    if (!currentUser || !character || sessionConflictLocked) return;
     if (localBackend.isDownedOrWaitingRevive(currentUser.id).locked) return;
     const now = Date.now();
-    if (now - this.lastPlayerSpaceAttackAt < 380) return;
+    if (now - this.lastPlayerSpaceAttackAt < STARTER_SWORD_SPEC.cooldown_ms) return;
     this.lastPlayerSpaceAttackAt = now;
 
     this.registerValidPlayerInput();
     const playerTile = this.worldToTileFloat(this.worldPos.x, this.worldPos.y);
 
-    // Find nearest alive monster within PLAYER_ATTACK_RANGE_TILES (2.5 tiles)
+    // 1. Check nearest alive monster within STARTER_SWORD_SPEC.range_tiles (2.5 tiles)
     let nearestMob: (typeof this.monsters)[number] | null = null;
-    let bestDist = Infinity;
+    let bestMobDist = Infinity;
 
     for (const mob of this.monsters) {
-      if (mob.respawnAt !== null) continue;
+      if (mob.respawnAt !== null || !mob.container.visible) continue;
       const mobTile = this.worldToTileFloat(mob.worldPos.x, mob.worldPos.y);
       const d = Math.hypot(mobTile.x - playerTile.x, mobTile.y - playerTile.y);
-      if (d <= GAME_CONFIG.PLAYER_ATTACK_RANGE_TILES && d < bestDist) {
-        bestDist = d;
+      if (d <= STARTER_SWORD_SPEC.range_tiles && d < bestMobDist) {
+        bestMobDist = d;
         nearestMob = mob;
       }
     }
 
-    // Draw visual swing arc around player
-    this.attackSlashGraphic.clear();
-    this.attackSlashGraphic.lineStyle(3, 0xfef08a, 0.95);
-    this.attackSlashGraphic.strokeEllipse(this.worldPos.x, this.worldPos.y - 12, 54, 26);
-    this.time.delayedCall(180, () => {
-      this.attackSlashGraphic.clear();
-    });
+    // 2. Check nearest valid PvP target in Arena if player is inside Arena
+    let nearestPvpTarget: { id: string; userId: string; name: string; worldX: number; worldY: number } | null = null;
+    let bestPvpDist = Infinity;
+    const playerInArena = isArenaTile(Math.round(playerTile.x), Math.round(playerTile.y));
 
-    if (!nearestMob) {
-      window.dispatchEvent(
-        new CustomEvent('rimba-toast', {
-          detail: {
-            message:
-              currentLang === 'en'
-                ? 'No monster in attack range! Walk closer to a Slime or Goblin and press [Space].'
-                : 'Tidak ada monster dalam jangkauan! Dekati Slime atau Goblin lalu tekan [Spasi].',
-          },
-        })
+    if (playerInArena && !nearestMob) {
+      for (const [id, other] of this.others.entries()) {
+        const otherTile = this.worldToTileFloat(other.container.x, other.container.y);
+        if (!isArenaTile(Math.round(otherTile.x), Math.round(otherTile.y))) continue;
+        const d = Math.hypot(otherTile.x - playerTile.x, otherTile.y - playerTile.y);
+        if (d <= STARTER_SWORD_SPEC.range_tiles && d < bestPvpDist) {
+          bestPvpDist = d;
+          nearestPvpTarget = {
+            id,
+            userId: other.userId,
+            name: other.label.text.replace(/\s*\(AFK\)$/i, ''),
+            worldX: other.container.x,
+            worldY: other.container.y,
+          };
+        }
+      }
+    }
+
+    // Orient character toward target if hitting a monster or PvP opponent
+    if (nearestMob) {
+      this.facingDir = vectorToFacing8(
+        nearestMob.worldPos.x - this.worldPos.x,
+        nearestMob.worldPos.y - this.worldPos.y,
+        this.facingDir
       );
+    } else if (nearestPvpTarget) {
+      this.facingDir = vectorToFacing8(
+        nearestPvpTarget.worldX - this.worldPos.x,
+        nearestPvpTarget.worldY - this.worldPos.y,
+        this.facingDir
+      );
+    }
+
+    // Play 8-directional sword swing animation (windup -> slash -> recover)
+    this.isSwingingSword = true;
+    this.lastSwingBroadcastAt = now;
+    window.dispatchEvent(
+      new CustomEvent('rimba-sword-swung', { detail: { cooldownMs: STARTER_SWORD_SPEC.cooldown_ms } })
+    );
+    this.playSwordSwingAnimation(
+      this.avatarSwordGroup,
+      this.avatarBodyGroup,
+      this.facingDir,
+      this.worldPos.x,
+      this.worldPos.y,
+      () => {
+        this.isSwingingSword = false;
+        this.applySwordIdlePose(this.avatarSwordGroup, this.facingDir, false);
+      }
+    );
+
+    this.broadcastOwnStateNow(true);
+
+    // Process monster hit
+    if (nearestMob) {
+      nearestMob.hp = Math.max(0, nearestMob.hp - STARTER_SWORD_SPEC.damage);
+      const ratio = nearestMob.hp / nearestMob.maxHp;
+      nearestMob.hpBarFill.width = Math.max(0, 28 * ratio);
+      nearestMob.hpBarFill.fillColor = ratio > 0.45 ? 0x22c55e : 0xf59e0b;
+      const mobTitle = nearestMob.cfg.kind === 'slime' ? 'Slime' : 'Goblin';
+      nearestMob.label.setText(`${mobTitle} (${nearestMob.hp}/${nearestMob.maxHp})`);
+
+      if (nearestMob.hp <= 0) {
+        nearestMob.respawnAt = Date.now() + 5500;
+        nearestMob.container.setVisible(false);
+        const reward = localBackend.recordMonsterDefeatReward(currentUser.id, nearestMob.cfg.kind, currentLang);
+        window.dispatchEvent(new CustomEvent('rimba-toast', { detail: { message: reward.message } }));
+      }
       return;
     }
 
-    // Section 10: Pressing Spacebar damages the monster and NEVER reduces player HP
-    nearestMob.hp = Math.max(0, nearestMob.hp - GAME_CONFIG.PLAYER_ATTACK_DAMAGE);
-    const ratio = nearestMob.hp / nearestMob.maxHp;
-    nearestMob.hpBarFill.width = Math.max(0, 28 * ratio);
-    nearestMob.hpBarFill.fillColor = ratio > 0.45 ? 0x22c55e : 0xf59e0b;
-    const mobTitle = nearestMob.cfg.kind === 'slime' ? 'Slime' : 'Goblin';
-    nearestMob.label.setText(`${mobTitle} (${nearestMob.hp}/${nearestMob.maxHp})`);
-
-    if (nearestMob.hp <= 0) {
-      nearestMob.respawnAt = Date.now() + 5500;
-      nearestMob.container.setVisible(false);
-      const reward = localBackend.recordMonsterDefeatReward(currentUser.id, nearestMob.cfg.kind, currentLang);
-      window.dispatchEvent(new CustomEvent('rimba-toast', { detail: { message: reward.message } }));
+    // Process Arena PvP hit (validated by server)
+    if (nearestPvpTarget) {
+      void triggerServerPvpAttack(nearestPvpTarget.userId, nearestPvpTarget.name);
     }
+    // If neither monster nor PvP target is in range, play clean empty swing without error spam
   }
 
   private hasDirectWalkableLine(a: { x: number; y: number }, b: { x: number; y: number }): boolean {
@@ -1419,6 +1783,7 @@ class WorldScene extends Phaser.Scene {
 
     const inputBlocked =
       isSpectator ||
+      sessionConflictLocked ||
       isFormInputFocused() ||
       Boolean(document.querySelector('#scrim')) ||
       Boolean(document.querySelector('#phase2-scrim')) ||
@@ -1448,6 +1813,7 @@ class WorldScene extends Phaser.Scene {
     // Check 30-second AFK idle threshold for Citizen characters
     if (
       !isSpectator &&
+      !sessionConflictLocked &&
       currentUser &&
       !deathState.locked &&
       !this.isAfkBotActive &&
@@ -1457,7 +1823,7 @@ class WorldScene extends Phaser.Scene {
     }
 
     // Periodic batch tick while in AFK mode (3-minute stroll + 3-minute work cycle)
-    if (this.isAfkBotActive && currentUser && character && !deathState.locked) {
+    if (this.isAfkBotActive && currentUser && character && !deathState.locked && !sessionConflictLocked) {
       if (Date.now() - this.lastAfkBatchTickAt >= GAME_CONFIG.AFK_BATCH_TICK_MS) {
         this.lastAfkBatchTickAt = Date.now();
         const tickRes = localBackend.processAfkBatchTick(currentUser.id);
@@ -1475,6 +1841,8 @@ class WorldScene extends Phaser.Scene {
     }
 
     let isMovingNow = false;
+    const prevWorldX = this.worldPos.x;
+    const prevWorldY = this.worldPos.y;
 
     if (keyboardActive) {
       this.path = [];
@@ -1500,7 +1868,7 @@ class WorldScene extends Phaser.Scene {
           isMovingNow = true;
         }
       }
-    } else if ((!inputBlocked || this.isAfkBotActive) && this.path.length) {
+    } else if ((!inputBlocked || this.isAfkBotActive) && !sessionConflictLocked && this.path.length) {
       const targetTile = this.path[0]!;
       const targetWorld = this.tileToWorld(targetTile.x, targetTile.y);
       const d = Phaser.Math.Distance.Between(this.worldPos.x, this.worldPos.y, targetWorld.x, targetWorld.y);
@@ -1525,6 +1893,13 @@ class WorldScene extends Phaser.Scene {
       }
     }
 
+    const moveDeltaX = this.worldPos.x - prevWorldX;
+    const moveDeltaY = this.worldPos.y - prevWorldY;
+    if (Math.hypot(moveDeltaX, moveDeltaY) > 0.25) {
+      this.facingDir = vectorToFacing8(moveDeltaX, moveDeltaY, this.facingDir);
+      this.applySwordIdlePose(this.avatarSwordGroup, this.facingDir, this.isSwingingSword);
+    }
+
     if (isMovingNow) {
       this.walkPhase += dt * (this.isAfkBotActive ? 8 : 14);
       const bob = Math.abs(Math.sin(this.walkPhase)) * 3.0;
@@ -1545,10 +1920,32 @@ class WorldScene extends Phaser.Scene {
       y: Number(Phaser.Math.Clamp(floatTile.y, 1, 54).toFixed(2)),
     };
 
+    const camView = this.cameras.main.worldView;
+    const now = Date.now();
+
+    // Viewport culling for decorative trees, buildings, and work nodes (throttled to every 120ms)
+    if (now - this.lastCullCheckAt >= 120) {
+      this.lastCullCheckAt = now;
+      const left = camView.left;
+      const right = camView.right;
+      const top = camView.top;
+      const bottom = camView.bottom;
+      for (let i = 0; i < this.culledProps.length; i++) {
+        const p = this.culledProps[i]!;
+        const vis =
+          p.wx >= left - p.pad &&
+          p.wx <= right + p.pad &&
+          p.wy >= top - p.pad &&
+          p.wy <= bottom + p.pad;
+        if (p.obj.visible !== vis) {
+          p.obj.setVisible(vis);
+        }
+      }
+    }
+
     // Section 10: Update Slime (Upper Dungeon) and Goblin (Lower Dungeon) AI, chasing, and counterattacks
     const playerInD1 = isDungeon1Tile(Math.round(ownTilePosition.x), Math.round(ownTilePosition.y));
     const playerInD2 = isDungeon2Tile(Math.round(ownTilePosition.x), Math.round(ownTilePosition.y));
-    const now = Date.now();
 
     for (const mob of this.monsters) {
       if (mob.respawnAt !== null) {
@@ -1566,6 +1963,12 @@ class WorldScene extends Phaser.Scene {
         }
         continue;
       }
+
+      const mobInViewport =
+        mob.worldPos.x >= camView.left - 180 &&
+        mob.worldPos.x <= camView.right + 180 &&
+        mob.worldPos.y >= camView.top - 180 &&
+        mob.worldPos.y <= camView.bottom + 180;
 
       const mobTile = this.worldToTileFloat(mob.worldPos.x, mob.worldPos.y);
       const sameDungeonAsPlayer =
@@ -1604,8 +2007,8 @@ class WorldScene extends Phaser.Scene {
             window.dispatchEvent(new CustomEvent('rimba-toast', { detail: { message: hit.message } }));
           }
         }
-      } else {
-        // Patrol inside dungeon bounds
+      } else if (mobInViewport) {
+        // Patrol inside dungeon bounds only when visible in viewport (saves CPU on mobile)
         const wp = mob.cfg.patrolWaypoints[mob.waypointIdx]!;
         const targetWorld = this.tileToWorld(wp.x, wp.y);
         const dWorld = Phaser.Math.Distance.Between(mob.worldPos.x, mob.worldPos.y, targetWorld.x, targetWorld.y);
@@ -1618,13 +2021,17 @@ class WorldScene extends Phaser.Scene {
         }
       }
 
-      mob.bobPhase += dt * 7;
-      mob.bodyGraphic.y = -Math.abs(Math.sin(mob.bobPhase)) * 2.5;
-      mob.container.setPosition(mob.worldPos.x, mob.worldPos.y);
-      mob.container.setDepth(mob.worldPos.y + 82);
+      if (mob.container.visible !== mobInViewport) {
+        mob.container.setVisible(mobInViewport);
+      }
+      if (mobInViewport) {
+        mob.bobPhase += dt * 7;
+        mob.bodyGraphic.y = -Math.abs(Math.sin(mob.bobPhase)) * 2.5;
+        mob.container.setPosition(mob.worldPos.x, mob.worldPos.y);
+        mob.container.setDepth(mob.worldPos.y + 82);
+      }
     }
 
-    const camView = this.cameras.main.worldView;
     const focusX = character ? this.worldPos.x : camView.centerX;
     const focusY = character ? this.worldPos.y : camView.centerY;
 
@@ -1645,17 +2052,21 @@ class WorldScene extends Phaser.Scene {
 
     // Update & cull remote multiplayer avatars + distance-scaled labels
     for (const [id, other] of this.others.entries()) {
-      if (Date.now() - other.lastSeen > 30000) {
+      if (now - other.lastSeen > 18000) {
         other.container.destroy();
         this.others.delete(id);
         continue;
       }
       const dMove = Phaser.Math.Distance.Between(other.container.x, other.container.y, other.target.x, other.target.y);
-      other.container.x = Phaser.Math.Linear(other.container.x, other.target.x, Math.min(1, dt * 9));
-      other.container.y = Phaser.Math.Linear(other.container.y, other.target.y, Math.min(1, dt * 9));
+      const stepDx = other.target.x - other.container.x;
+      const stepDy = other.target.y - other.container.y;
+      other.container.x = Phaser.Math.Linear(other.container.x, other.target.x, Math.min(1, dt * 10));
+      other.container.y = Phaser.Math.Linear(other.container.y, other.target.y, Math.min(1, dt * 10));
       other.container.setDepth(other.container.y + 80);
 
       if (dMove > 1.5) {
+        other.facing = vectorToFacing8(stepDx, stepDy, other.facing);
+        this.applySwordIdlePose(other.swordGroup, other.facing, other.isSwinging);
         other.walkPhase += dt * 11;
         other.bodyGroup.y = -Math.abs(Math.sin(other.walkPhase)) * 2.5;
       } else {
@@ -1687,51 +2098,6 @@ class WorldScene extends Phaser.Scene {
       }
     }
 
-    // Update simulated regional AFK citizens (from registered KTP player accounts)
-    for (const sim of this.simAfkEntities) {
-      const wps = sim.citizen.waypoints;
-      if (wps.length > 1) {
-        const targetTile = wps[sim.waypointIdx]!;
-        const targetWorld = this.tileToWorld(targetTile.x, targetTile.y);
-        const d = Phaser.Math.Distance.Between(sim.worldPos.x, sim.worldPos.y, targetWorld.x, targetWorld.y);
-        if (d < 3) {
-          sim.waypointIdx = (sim.waypointIdx + 1) % wps.length;
-        } else {
-          const step = Math.min(1, (44 * dt) / d);
-          sim.worldPos.x = Phaser.Math.Linear(sim.worldPos.x, targetWorld.x, step);
-          sim.worldPos.y = Phaser.Math.Linear(sim.worldPos.y, targetWorld.y, step);
-          sim.walkPhase += dt * 8.5;
-          sim.bodyGroup.y = -Math.abs(Math.sin(sim.walkPhase)) * 2.2;
-        }
-        sim.container.setPosition(sim.worldPos.x, sim.worldPos.y);
-        sim.container.setDepth(sim.worldPos.y + 81);
-      }
-
-      const inViewport =
-        sim.worldPos.x >= camView.left - 160 &&
-        sim.worldPos.x <= camView.right + 160 &&
-        sim.worldPos.y >= camView.top - 160 &&
-        sim.worldPos.y <= camView.bottom + 160;
-      const dist = Phaser.Math.Distance.Between(focusX, focusY, sim.worldPos.x, sim.worldPos.y);
-      const showLabel = inViewport && dist <= 780;
-
-      sim.container.setVisible(inViewport);
-      sim.label.setVisible(showLabel);
-      if (showLabel) {
-        const scale = Phaser.Math.Clamp(1.02 - dist / 1700, 0.76, 1.0);
-        const alpha = Phaser.Math.Clamp(1.15 - dist / 780, 0.48, 1.0);
-        sim.label.setScale(scale);
-        sim.label.setAlpha(alpha);
-        sim.label.y = -58;
-        visibleLabels.push({
-          label: sim.label,
-          worldX: sim.worldPos.x,
-          worldY: sim.worldPos.y,
-          baseY: -58,
-        });
-      }
-    }
-
     // Prevent label overlap when characters stand close to each other
     visibleLabels.sort((a, b) => a.worldY - b.worldY);
     for (let i = 0; i < visibleLabels.length; i++) {
@@ -1746,41 +2112,56 @@ class WorldScene extends Phaser.Scene {
       }
     }
 
-    if (Date.now() - this.lastBroadcast > 180) {
-      this.lastBroadcast = Date.now();
-      if (
-        Phaser.Math.Distance.Between(this.worldPos.x, this.worldPos.y, this.lastSentWorld.x, this.lastSentWorld.y) > 3
-      ) {
-        this.broadcastOwnStateNow();
+    if (now - this.lastBroadcast > 180) {
+      this.lastBroadcast = now;
+      const movedDist = Phaser.Math.Distance.Between(
+        this.worldPos.x,
+        this.worldPos.y,
+        this.lastSentWorld.x,
+        this.lastSentWorld.y
+      );
+      if (movedDist > 2.5) {
+        this.broadcastOwnStateNow(false);
+      } else if (now - lastServerSyncAt > 1100) {
+        void syncWithWorldServer(false);
       }
     }
 
-    updateCombinedWorldHeader(this.others.size + 1);
+    updateCombinedWorldHeader(this.others.size + (character ? 1 : 0));
   }
 
-  public broadcastOwnStateNow() {
+  public broadcastOwnStateNow(swingTriggered = false) {
     this.lastSentWorld.set(this.worldPos.x, this.worldPos.y);
     const safeName = character
       ? sanitizePlayerLabelName(character.display_name, 'Warga')
       : currentLang === 'en'
         ? 'Spectator'
         : 'Penonton';
+    const inv = currentUser ? localBackend.getInventory(currentUser.id) : null;
     const payload: Avatar = {
       userId: currentUser?.id ?? clientId,
       clientId,
+      citizenNumber: character?.citizen_number,
       name: safeName,
       tx: ownTilePosition.x,
       ty: ownTilePosition.y,
       color: character?.avatar_color ?? '#64748b',
       hatColor: getHatColor(character?.hat_id) ?? undefined,
       modelId: character?.model_id,
+      residenceStatus: character?.residence_status,
+      homeRegion: character?.home_region ?? 'Wilayah 1',
       isAfk: this.isAfkBotActive,
+      facing: this.facingDir,
+      lastSwingAt: swingTriggered ? Date.now() : this.lastSwingBroadcastAt,
+      hp: inv?.hp ?? 100,
+      maxHp: inv?.max_hp ?? 100,
     };
-    if (channel && currentUser) {
+    if (channel && currentUser && character) {
       void channel.send({ type: 'broadcast', event: 'move', payload });
       void channel.track(payload).catch(() => {});
     }
     localBroadcast?.postMessage({ type: 'move', payload });
+    void syncWithWorldServer(swingTriggered);
   }
 
   setPosition(tileX: number, tileY: number) {
@@ -1799,14 +2180,17 @@ class WorldScene extends Phaser.Scene {
 
   setOnline(avatars: Avatar[]) {
     const activeIds = new Set<string>();
+    const activeRegion = character?.home_region ?? 'Wilayah 1';
     for (const a of avatars) {
-      const id = a.clientId ?? a.userId;
-      if (id === clientId) continue;
+      // One account = one character in the world; key by userId so same account doesn't duplicate
+      const id = a.userId || a.clientId || '';
+      if (!id || id === currentUser?.id || a.clientId === clientId) continue;
+      if (a.homeRegion && a.homeRegion !== activeRegion) continue;
       activeIds.add(id);
       this.putOther(a);
     }
     for (const [id, item] of this.others.entries()) {
-      if (!activeIds.has(id) && Date.now() - item.lastSeen > 5000) {
+      if (!activeIds.has(id) && Date.now() - item.lastSeen > 6000) {
         item.container.destroy();
         this.others.delete(id);
       }
@@ -1814,15 +2198,19 @@ class WorldScene extends Phaser.Scene {
   }
 
   public putOther(a: Avatar) {
-    const id = a.clientId ?? a.userId;
-    if (id === clientId) return;
+    const id = a.userId || a.clientId || '';
+    if (!id || id === currentUser?.id || a.clientId === clientId) return;
     const safeName = sanitizePlayerLabelName(a.name, 'Warga');
     const displayLabel = a.isAfk ? `${safeName} (AFK)` : safeName;
     const p = this.tileToWorld(a.tx, a.ty);
+    const dir: FacingDir8 = a.facing ?? 'S';
     let item = this.others.get(id);
     if (!item) {
       const shadow = this.add.ellipse(0, 0, 21, 9, 0x1e293b, 0.28);
       const bodyGroup = this.buildChibiBodyGroup(a.modelId, a.color, a.hatColor);
+      const swordGroup = this.buildStarterSwordGraphic();
+      this.applySwordIdlePose(swordGroup, dir, false);
+      bodyGroup.add(swordGroup);
       const label = this.add
         .text(0, -58, displayLabel, {
           fontFamily: 'Plus Jakarta Sans, Arial',
@@ -1838,29 +2226,211 @@ class WorldScene extends Phaser.Scene {
         .setOrigin(0.5);
       const container = this.add.container(p.x, p.y, [shadow, bodyGroup, label]).setDepth(p.y + 80);
       item = {
+        userId: a.userId,
         container,
         bodyGroup,
+        swordGroup,
         target: new Phaser.Math.Vector2(p.x, p.y),
         label,
         lastSeen: Date.now(),
         walkPhase: 0,
+        facing: dir,
+        lastSwingAt: a.lastSwingAt ?? 0,
+        isSwinging: false,
       };
       this.others.set(id, item);
     }
     item.target.set(p.x, p.y);
     item.label.setText(displayLabel);
+    item.label.setBackgroundColor(a.isAfk ? 'rgba(120, 53, 15, 0.86)' : 'rgba(15, 23, 42, 0.78)');
     item.lastSeen = Date.now();
+    if (a.facing && a.facing !== item.facing) {
+      item.facing = a.facing;
+      this.applySwordIdlePose(item.swordGroup, item.facing, item.isSwinging);
+    }
+    // Play remote player's sword swing animation when they press Spacebar
+    if (a.lastSwingAt && a.lastSwingAt > item.lastSwingAt) {
+      item.lastSwingAt = a.lastSwingAt;
+      item.isSwinging = true;
+      const targetItem = item;
+      this.playSwordSwingAnimation(
+        targetItem.swordGroup,
+        targetItem.bodyGroup,
+        targetItem.facing,
+        targetItem.container.x,
+        targetItem.container.y,
+        () => {
+          targetItem.isSwinging = false;
+          this.applySwordIdlePose(targetItem.swordGroup, targetItem.facing, false);
+        }
+      );
+    }
   }
 }
 
-// Section 4, 9 & 11: Update Region 1 population display (`18 / 25`), live WIB Clock, and PvP Status Pill
+function updateSessionConflictBanner(conflict: boolean) {
+  sessionConflictLocked = conflict;
+  const banner = document.querySelector<HTMLElement>('#session-conflict-banner');
+  if (banner) {
+    banner.style.display = conflict ? 'flex' : 'none';
+  }
+}
+
+async function syncWithWorldServer(swingTriggered = false) {
+  if (typeof window === 'undefined') return;
+  if (serverSyncInFlight && !swingTriggered) return;
+  serverSyncInFlight = true;
+  lastServerSyncAt = Date.now();
+
+  try {
+    if (!currentUser || !character) {
+      // Spectator mode: fetch online players in Wilayah 1
+      const res = await fetch('/api/world?region=Wilayah%201', { cache: 'no-store' });
+      if (res.ok) {
+        const data = (await res.json()) as {
+          players?: Avatar[];
+          regionSummary?: ServerRegionSummary;
+        };
+        if (data.regionSummary) serverRegionSummary = data.regionSummary;
+        if (Array.isArray(data.players)) {
+          serverMoves.clear();
+          for (const p of data.players) {
+            serverMoves.set(p.userId, p);
+          }
+          world?.setOnline(mergedAvatars());
+        }
+      }
+      return;
+    }
+
+    const inv = localBackend.getInventory(currentUser.id);
+    const res = await fetch('/api/world', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'sync_presence',
+        userId: currentUser.id,
+        sessionId: clientId,
+        tx: ownTilePosition.x,
+        ty: ownTilePosition.y,
+        facing: (world as unknown as { facingDir?: FacingDir8 })?.facingDir ?? 'S',
+        isAfk: inv.player_status === 'afk',
+        swingTriggered,
+        hp: inv.hp,
+        maxHp: inv.max_hp,
+        characterPayload: character,
+      }),
+    });
+
+    if (!res.ok) return;
+    const data = (await res.json()) as {
+      ok?: boolean;
+      sessionConflict?: boolean;
+      character?: Character;
+      selfState?: { hp: number; maxHp: number; tx: number; ty: number };
+      players?: Avatar[];
+      regionSummary?: ServerRegionSummary;
+    };
+
+    if (data.regionSummary) {
+      serverRegionSummary = data.regionSummary;
+    }
+
+    if (data.sessionConflict) {
+      updateSessionConflictBanner(true);
+    } else {
+      updateSessionConflictBanner(false);
+    }
+
+    // Apply server-validated PvP damage if our HP was reduced in Arena
+    if (data.selfState && typeof data.selfState.hp === 'number' && data.selfState.hp < inv.hp) {
+      const dmg = inv.hp - data.selfState.hp;
+      const hitRes = localBackend.applyPvpDamageFromPlayer(currentUser.id, 'Arena PvP', dmg, currentLang);
+      if (hitRes.message) {
+        window.dispatchEvent(new CustomEvent('rimba-toast', { detail: { message: hitRes.message } }));
+      }
+      if (hitRes.died) {
+        world?.setPosition(34, 28);
+      }
+    }
+
+    if (Array.isArray(data.players)) {
+      serverMoves.clear();
+      for (const p of data.players) {
+        if (p.userId !== currentUser.id) {
+          serverMoves.set(p.userId, p);
+        }
+      }
+      world?.setOnline(mergedAvatars());
+    }
+  } catch {
+    // Ignore transient network errors
+  } finally {
+    serverSyncInFlight = false;
+  }
+}
+
+async function triggerServerPvpAttack(targetUserId: string, targetName: string) {
+  if (!currentUser || !character) return;
+  try {
+    const res = await fetch('/api/world', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'pvp_attack',
+        userId: currentUser.id,
+        sessionId: clientId,
+        targetUserId,
+        attackerTx: ownTilePosition.x,
+        attackerTy: ownTilePosition.y,
+      }),
+    });
+    if (!res.ok) return;
+    const data = (await res.json()) as {
+      ok?: boolean;
+      damage?: number;
+      targetHp?: number;
+    };
+    if (data.ok && data.damage) {
+      const msg =
+        currentLang === 'en'
+          ? `Hit ${targetName} with ${STARTER_SWORD_SPEC.name_en} (-${data.damage} HP)!`
+          : `Menebas ${targetName} dengan ${STARTER_SWORD_SPEC.name_id} (-${data.damage} HP)!`;
+      window.dispatchEvent(new CustomEvent('rimba-toast', { detail: { message: msg } }));
+    }
+  } catch {
+    // Ignore transient network errors
+  }
+}
+
+async function reclaimActiveSessionHere() {
+  if (!currentUser) return;
+  try {
+    await fetch('/api/world', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'claim_session',
+        userId: currentUser.id,
+        sessionId: clientId,
+      }),
+    });
+    updateSessionConflictBanner(false);
+    void syncWithWorldServer(false);
+  } catch {
+    updateSessionConflictBanner(false);
+  }
+}
+
+// Section 4, 9 & 11: Update Region population display (`1 / 25`), live WIB Clock, and PvP Status Pill
 function updateCombinedWorldHeader(onlineCount = 1) {
   const el = document.querySelector<HTMLElement>('#combinedWorldTag');
   if (el) {
     const rawRegion = character?.home_region ?? 'Wilayah 1';
     const regionDisplay = currentLang === 'en' ? rawRegion.replace(/Wilayah/i, 'Region') : rawRegion;
-    const stats = localBackend.getWorldRegionAndNewsStats();
-    el.textContent = `${regionDisplay} • ${onlineCount} ${t().onlineSuffix} • ${stats.regionPopulationDisplay}`;
+    const stats = localBackend.getWorldRegionAndNewsStats(onlineCount, rawRegion, serverRegionSummary ?? undefined);
+    const liveOnline = Math.max(onlineCount, serverRegionSummary?.onlineInRegion ?? onlineCount);
+    el.textContent = `${regionDisplay} • ${liveOnline} ${t().onlineSuffix} • ${stats.regionPopulationDisplay}`;
   }
 
   const wibEl = document.querySelector<HTMLElement>('#wibClockText');
@@ -1881,13 +2451,17 @@ function shell() {
   $('#app').innerHTML = `
     <div class="game-shell">
       <div id="game"></div>
+      <div class="world-loading-pill" id="world-loading-pill">
+        <span class="world-loading-dot"></span>
+        <span>${currentLang === 'en' ? 'Preparing Rimba Region...' : 'Menyiapkan Wilayah Rimba...'}</span>
+      </div>
       <header class="topbar">
         <div class="brand">
           <span class="brand-mark">R</span>
           <span><b>RIMBA</b><small id="brandSubText">${escapeHtml(dict.brandSub)}</small></span>
         </div>
-        <button type="button" class="world-tag" id="worldHeaderBtn" style="cursor:pointer" title="Wilayah 1 • Kapasitas: 25 pemain • Visual AFK aktif: 5 dari 18 penduduk terdaftar">
-          <i></i> <span id="combinedWorldTag">Wilayah 1 • 1 online • 18 / 25</span>
+        <button type="button" class="world-tag" id="worldHeaderBtn" style="cursor:pointer" title="Wilayah Aktif • Kapasitas Maksimal: 25 Karakter Terdaftar per Wilayah">
+          <i></i> <span id="combinedWorldTag">Wilayah 1 • 1 online • 0 / 25</span>
         </button>
         <div class="topbar-actions">
           <span class="pvp-status-pill off" id="pvpStatusPill">🛡️ ${escapeHtml(dict.pvpStatusOff)}</span>
@@ -2050,6 +2624,7 @@ function openSaveAccount() {
     localBackend.signOut();
     currentUser = null;
     character = null;
+    updateSessionConflictBanner(false);
     syncAccountButtonLabel();
     window.dispatchEvent(new Event('character-change'));
     $('#dialog-root').innerHTML = '';
@@ -2178,6 +2753,16 @@ function openCharacterCreator() {
     dict.createCharTitle,
     `
     <p class="dialog-copy">${escapeHtml(dict.createCharCopy)}</p>
+    <div style="display:flex;align-items:center;gap:10px;background:#fef3c7;border:1px solid #f59e0b;border-radius:12px;padding:8px 12px;margin-bottom:12px;font-size:12px;color:#78350f">
+      <span>${renderStarterSwordSvg(26)}</span>
+      <span>
+        <b>${escapeHtml(dict.starterSwordName)}</b> — ${
+          currentLang === 'en'
+            ? 'Automatically granted to Inventory & Hotbar Slot #1 upon KTP issuance.'
+            : 'Otomatis diberikan ke Tas & Slot Hotbar #1 saat KTP diterbitkan.'
+        }
+      </span>
+    </div>
     <form id="characterForm" class="stack">
       <div class="model-grid">${modelCards}</div>
       <div class="two-col">
@@ -2200,6 +2785,8 @@ function openCharacterCreator() {
   $('#characterForm').addEventListener('submit', async e => {
     e.preventDefault();
     const f = e.currentTarget as HTMLFormElement;
+    const submitBtn = f.querySelector<HTMLButtonElement>('button[type="submit"]');
+    if (submitBtn) submitBtn.disabled = true;
     const fd = new FormData(f);
 
     try {
@@ -2211,21 +2798,69 @@ function openCharacterCreator() {
         p_model_id: String(fd.get('model')),
       };
       let created: Character | null = null;
-      if (supabase && currentUser) {
+
+      // 1. Authoritative server creation (/api/world) for atomic Citizen #001 sequence, 25-capacity region & starter sword
+      if (currentUser) {
+        try {
+          const res = await fetch('/api/world', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'create_character',
+              userId: currentUser.id,
+              sessionId: clientId,
+              displayName: payload.p_display_name,
+              age: payload.p_age,
+              bio: payload.p_bio,
+              modelId: payload.p_model_id,
+            }),
+          });
+          if (res.ok) {
+            const data = (await res.json()) as {
+              ok?: boolean;
+              character?: Character;
+              regionSummary?: ServerRegionSummary;
+            };
+            if (data.regionSummary) serverRegionSummary = data.regionSummary;
+            if (data.character) {
+              created = localBackend.saveCharacterRecord(data.character);
+            }
+          } else {
+            const errJson = (await res.json().catch(() => ({}))) as { error?: string };
+            if (errJson.error === 'NAME_TAKEN') {
+              throw new Error(
+                currentLang === 'en'
+                  ? 'Character name is already used by another citizen.'
+                  : 'Nama karakter sudah digunakan warga lain.'
+              );
+            }
+          }
+        } catch (err) {
+          if (err instanceof Error && err.message.includes('digunakan')) throw err;
+          if (err instanceof Error && err.message.includes('already used')) throw err;
+        }
+      }
+
+      // 2. Also persist in Supabase if configured
+      if (!created && supabase && currentUser) {
         const { data, error } = await supabase.rpc('create_character', payload);
         if (!error && data) {
           const cloudChar = data as Character;
-          created = {
+          created = localBackend.saveCharacterRecord({
             ...cloudChar,
             outfit_id: 'tunika-rimba',
             hat_id: 'none',
             residence_status: 'Warga',
-          };
+            starter_sword_id: STARTER_SWORD_SPEC.id,
+          });
         }
       }
+
+      // 3. Fallback to localBackend atomic creation
       if (!created && currentUser) {
         created = localBackend.createCharacter(currentUser.id, payload, currentLang);
       }
+
       character = created;
       ownTilePosition = { x: GAME_CONFIG.CENTRAL_SPAWN.x, y: GAME_CONFIG.CENTRAL_SPAWN.y };
       world?.setPosition(ownTilePosition.x, ownTilePosition.y);
@@ -2235,6 +2870,7 @@ function openCharacterCreator() {
       openKtp();
     } catch (err) {
       showMessage(err instanceof Error ? err.message : String(err));
+      if (submitBtn) submitBtn.disabled = false;
     }
   });
 }
@@ -2266,10 +2902,14 @@ function openKtp() {
         </div>
       </div>
       <div class="ktp-data">
-        <span>${escapeHtml(dict.ktpNumber)}<strong>#${String(character.citizen_number).padStart(5, '0')}</strong></span>
+        <span>${escapeHtml(dict.ktpNumber)}<strong>#${formatCitizenNumber(character.citizen_number)}</strong></span>
         <span>${escapeHtml(dict.ktpAge)}<strong>${character.age} ${escapeHtml(dict.ktpYearsOld)}</strong></span>
         <span>${escapeHtml(dict.ktpGender)}<strong>${character.gender === 'female' ? escapeHtml(dict.female) : escapeHtml(dict.male)}</strong></span>
         <span>${escapeHtml(dict.ktpIssued)}<strong>${escapeHtml(createdDate)}</strong></span>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding:7px 10px;background:rgba(255,255,255,0.68);border-radius:10px;border:1px solid rgba(140,107,50,0.28);font-size:11.5px;color:#1e293b">
+        <span>${renderStarterSwordSvg(22)}</span>
+        <span><b>${escapeHtml(dict.starterSwordName)}</b> · ${escapeHtml(dict.starterSwordBoundBadge)}</span>
       </div>
       <p>${escapeHtml(dict.ktpDisclaimer)}</p>
     </div>
@@ -2280,23 +2920,54 @@ function openKtp() {
 async function loadCharacter() {
   character = null;
   if (currentUser) {
-    const localChar = localBackend.getCharacter(currentUser.id);
-    if (localChar) {
-      character = localChar;
-    } else if (supabase) {
-      try {
-        const { data } = await supabase.from('characters').select('*').eq('user_id', currentUser.id).maybeSingle();
-        if (data) {
-          const cloudChar = data as Character;
-          character = {
-            ...cloudChar,
-            outfit_id: cloudChar.outfit_id ?? 'tunika-rimba',
-            hat_id: cloudChar.hat_id ?? 'none',
-            residence_status: cloudChar.residence_status ?? 'Warga',
-          };
+    // 1. Check authoritative server first so multi-device login with same account loads exact same character & position
+    try {
+      const res = await fetch('/api/world', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'get_character',
+          userId: currentUser.id,
+          sessionId: clientId,
+        }),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as {
+          character?: Character | null;
+          position?: { tile_x: number; tile_y: number };
+        };
+        if (data.character) {
+          character = localBackend.syncServerCharacter(currentUser.id, data.character);
+          if (data.position) {
+            localBackend.savePosition(currentUser.id, data.position.tile_x, data.position.tile_y);
+            ownTilePosition = { x: data.position.tile_x, y: data.position.tile_y };
+          }
         }
-      } catch {
-        // Fallback already checked
+      }
+    } catch {
+      // Fallback to local/Supabase below
+    }
+
+    if (!character) {
+      const localChar = localBackend.getCharacter(currentUser.id);
+      if (localChar) {
+        character = localChar;
+      } else if (supabase) {
+        try {
+          const { data } = await supabase.from('characters').select('*').eq('user_id', currentUser.id).maybeSingle();
+          if (data) {
+            const cloudChar = data as Character;
+            character = localBackend.syncServerCharacter(currentUser.id, {
+              ...cloudChar,
+              outfit_id: cloudChar.outfit_id ?? 'tunika-rimba',
+              hat_id: cloudChar.hat_id ?? 'none',
+              residence_status: cloudChar.residence_status ?? 'Warga',
+              starter_sword_id: STARTER_SWORD_SPEC.id,
+            });
+          }
+        } catch {
+          // Fallback already checked
+        }
       }
     }
   }
@@ -2304,57 +2975,86 @@ async function loadCharacter() {
 }
 
 async function joinWorld() {
-  if (!localBroadcast && typeof window !== 'undefined' && 'BroadcastChannel' in window) {
-    localBroadcast = new BroadcastChannel('rimba-world-1');
+  const regionNum = extractRegionNumber(character?.home_region);
+  const channelTopic = `region:${regionNum}`;
+
+  if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+    if (localBroadcast) {
+      localBroadcast.close();
+    }
+    localBroadcast = new BroadcastChannel(`rimba-${channelTopic}`);
     localBroadcast.onmessage = ev => {
       const msg = ev.data as { type: string; payload?: unknown };
       if (msg?.type === 'move' && msg.payload) {
         const avatar = msg.payload as Avatar;
-        if (avatar.clientId !== clientId) {
-          latestMoves.set(avatar.clientId ?? avatar.userId, avatar);
+        if (avatar.clientId !== clientId && avatar.userId !== currentUser?.id) {
+          latestMoves.set(avatar.userId || avatar.clientId!, avatar);
           world?.putOther(avatar);
         }
       }
     };
   }
 
-  if (!supabase || !currentUser) return;
-  if (channel) await supabase.removeChannel(channel);
+  // Trigger immediate server sync so cross-device players in the same Region appear right away
+  void syncWithWorldServer(false);
+
+  if (!supabase) return;
+  if (channel && currentSubscribedRegion !== channelTopic) {
+    await supabase.removeChannel(channel);
+    channel = null;
+  }
+  if (channel && currentSubscribedRegion === channelTopic) {
+    world?.broadcastOwnStateNow(false);
+    return;
+  }
+
+  currentSubscribedRegion = channelTopic;
   latestMoves.clear();
 
-  channel = supabase.channel('world:1', {
-    config: { private: true, presence: { key: clientId }, broadcast: { ack: false, self: false } },
+  // Public regional channel (`region:1`, `region:2`, ...) so laptop, phone, and different accounts connect without private RLS rejection
+  channel = supabase.channel(channelTopic, {
+    config: { private: false, presence: { key: currentUser?.id ?? clientId }, broadcast: { ack: false, self: false } },
   });
   channel.on('presence', { event: 'sync' }, () => {
     world?.setOnline(mergedAvatars());
   });
   channel.on('broadcast', { event: 'move' }, ({ payload }) => {
-    if (payload && payload.clientId !== clientId) {
+    if (payload && payload.clientId !== clientId && payload.userId !== currentUser?.id) {
       const raw = payload as Record<string, unknown>;
       const avatar: Avatar = {
         userId: String(raw.userId ?? ''),
         clientId: String(raw.clientId ?? raw.userId ?? ''),
-        name: String(raw.name ?? 'Penonton'),
+        citizenNumber: raw.citizenNumber ? Number(raw.citizenNumber) : undefined,
+        name: String(raw.name ?? 'Warga'),
         tx: Number(raw.tx ?? raw.x ?? GAME_CONFIG.CENTRAL_SPAWN.x),
         ty: Number(raw.ty ?? raw.y ?? GAME_CONFIG.CENTRAL_SPAWN.y),
         color: String(raw.color ?? '#5f9e6e'),
+        hatColor: raw.hatColor ? String(raw.hatColor) : undefined,
         modelId: raw.modelId ? String(raw.modelId) : undefined,
+        homeRegion: raw.homeRegion ? String(raw.homeRegion) : `Wilayah ${regionNum}`,
         isAfk: Boolean(raw.isAfk),
+        facing: (raw.facing as FacingDir8) ?? 'S',
+        lastSwingAt: raw.lastSwingAt ? Number(raw.lastSwingAt) : 0,
       };
-      latestMoves.set(avatar.clientId!, avatar);
+      latestMoves.set(avatar.userId || avatar.clientId!, avatar);
       world?.setOnline(mergedAvatars());
     }
   });
   await channel.subscribe(async status => {
-    if (status === 'SUBSCRIBED') {
+    if (status === 'SUBSCRIBED' && currentUser && character) {
       await channel!.track({
-        userId: currentUser!.id,
+        userId: currentUser.id,
         clientId,
-        name: character?.display_name ?? 'Penonton',
+        citizenNumber: character.citizen_number,
+        name: character.display_name,
         tx: ownTilePosition.x,
         ty: ownTilePosition.y,
-        color: character?.avatar_color ?? '#5f9e6e',
-        modelId: character?.model_id,
+        color: character.avatar_color,
+        hatColor: getHatColor(character.hat_id) ?? undefined,
+        modelId: character.model_id,
+        homeRegion: character.home_region,
+        isAfk: false,
+        facing: 'S',
       });
     }
   });
@@ -2369,12 +3069,17 @@ function getPresenceAvatars(): Avatar[] {
         out.push({
           userId: row.userId,
           clientId: String(row.clientId ?? row.userId),
-          name: String(row.name ?? 'Penonton'),
+          citizenNumber: row.citizenNumber ? Number(row.citizenNumber) : undefined,
+          name: String(row.name ?? 'Warga'),
           tx: Number(row.tx ?? row.x ?? GAME_CONFIG.CENTRAL_SPAWN.x),
           ty: Number(row.ty ?? row.y ?? GAME_CONFIG.CENTRAL_SPAWN.y),
           color: String(row.color ?? '#5f9e6e'),
+          hatColor: row.hatColor ? String(row.hatColor) : undefined,
           modelId: row.modelId ? String(row.modelId) : undefined,
+          homeRegion: row.homeRegion ? String(row.homeRegion) : undefined,
           isAfk: Boolean(row.isAfk),
+          facing: (row.facing as FacingDir8) ?? 'S',
+          lastSwingAt: row.lastSwingAt ? Number(row.lastSwingAt) : 0,
         });
       }
     }
@@ -2383,11 +3088,19 @@ function getPresenceAvatars(): Avatar[] {
 }
 
 function mergedAvatars(): Avatar[] {
-  const combined = new Map(
-    getPresenceAvatars().map(a => [a.clientId ?? a.userId, latestMoves.get(a.clientId ?? a.userId) ?? a])
-  );
-  for (const [id, a] of latestMoves) {
-    if (!combined.has(id)) combined.set(id, a);
+  const combined = new Map<string, Avatar>();
+  for (const [uid, srvAvatar] of serverMoves) {
+    combined.set(uid, srvAvatar);
+  }
+  for (const presAvatar of getPresenceAvatars()) {
+    const key = presAvatar.userId || presAvatar.clientId!;
+    combined.set(key, latestMoves.get(key) ?? presAvatar);
+  }
+  for (const [id, moveAvatar] of latestMoves) {
+    const existing = combined.get(id);
+    if (!existing || (moveAvatar.lastSwingAt ?? 0) >= (existing.lastSwingAt ?? 0)) {
+      combined.set(id, moveAvatar);
+    }
   }
   return [...combined.values()];
 }
@@ -2405,6 +3118,7 @@ export function bootRimbaGame() {
     onCharacterUpdated: updated => {
       character = updated;
       window.dispatchEvent(new Event('character-change'));
+      void syncWithWorldServer(false);
     },
     openCharacterCreator,
     openKtpModal: openKtp,
@@ -2414,8 +3128,10 @@ export function bootRimbaGame() {
       ownTilePosition = { x, y };
       world?.setPosition(x, y);
     },
+    getServerRegionSummary: () => serverRegionSummary ?? undefined,
   });
 
+  const compactMobile = isCompactMobileViewport();
   const game = new Phaser.Game({
     type: Phaser.AUTO,
     parent: 'game',
@@ -2424,13 +3140,32 @@ export function bootRimbaGame() {
     backgroundColor: '#76bf6d',
     scale: { mode: Phaser.Scale.RESIZE, autoCenter: Phaser.Scale.CENTER_BOTH },
     scene: [WorldScene],
-    render: { antialias: true, roundPixels: false },
+    render: {
+      antialias: !compactMobile,
+      roundPixels: compactMobile,
+      powerPreference: 'high-performance',
+    },
   });
 
   const resizeGame = () => game.scale.resize(window.innerWidth, window.innerHeight);
   window.addEventListener('resize', resizeGame);
   game.events.once(Phaser.Core.Events.READY, resizeGame);
   requestAnimationFrame(resizeGame);
+
+  window.addEventListener('rimba-reclaim-session', () => {
+    void reclaimActiveSessionHere();
+  });
+
+  window.addEventListener('beforeunload', () => {
+    if (currentUser) {
+      navigator.sendBeacon?.(
+        '/api/world',
+        new Blob([JSON.stringify({ action: 'leave', userId: currentUser.id, sessionId: clientId })], {
+          type: 'application/json',
+        })
+      );
+    }
+  });
 
   const switchLanguage = (lang: Lang) => {
     currentLang = lang;
@@ -2462,6 +3197,7 @@ export function bootRimbaGame() {
       localBackend.signOut();
       currentUser = null;
       character = null;
+      updateSessionConflictBanner(false);
       syncAccountButtonLabel();
       window.dispatchEvent(new Event('character-change'));
     }
@@ -2484,3 +3220,4 @@ if (
 ) {
   bootRimbaGame();
 }
+

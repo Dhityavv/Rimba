@@ -1,58 +1,139 @@
--- Fase 1: identity and character ownership. Run once in Supabase SQL Editor.
-create extension if not exists pgcrypto;
+-- Run this in the Supabase SQL Editor before starting Rimba.
+-- Includes:
+-- 1. Citizen sequence starting at 001 (1)
+-- 2. Automatic Region placement (25 registered characters per region: Wilayah 1, Wilayah 2, ...)
+-- 3. Starter Sword (Pedang Pemula Rimba / Rimba Beginner Sword) granted atomically on character creation
+-- 4. Realtime policies for region:1, region:2, ... channels
 
-create sequence if not exists public.citizen_number_seq start with 1 increment by 1 no cycle;
+create sequence if not exists public.citizen_number_seq start with 1 minvalue 1;
 
 create table if not exists public.characters (
   user_id uuid primary key references auth.users(id) on delete cascade,
   citizen_number bigint not null unique default nextval('public.citizen_number_seq'),
-  display_name text not null check (char_length(display_name) between 2 and 24),
-  age smallint not null check (age between 18 and 99),
+  display_name text not null check (char_length(trim(display_name)) between 2 and 20),
+  age integer not null check (age between 18 and 99),
   bio text not null default '' check (char_length(bio) <= 120),
-  model_id text not null check (model_id ~ '^(female|male)-(0[1-9]|1[0-9]|2[0-5])$'),
-  gender text generated always as (split_part(model_id, '-', 1)) stored,
-  avatar_color text not null,
+  model_id text not null check (model_id ~ '^(female|male)-(0[1-9]|10)$'),
+  gender text not null check (gender in ('female', 'male')),
+  avatar_color text not null default '#5f9e6e' check (avatar_color ~ '^#[0-9a-fA-F]{6}$'),
+  outfit_id text not null default 'tunika-rimba',
+  hat_id text not null default 'none',
+  residence_status text not null default 'Warga' check (residence_status in ('Warga', 'Penduduk')),
   home_region text not null default 'Wilayah 1',
+  starter_sword_id text not null default 'sword_beginner_rimba',
   created_at timestamptz not null default now()
 );
 
 alter table public.characters enable row level security;
-drop policy if exists "characters visible to signed-in players" on public.characters;
-create policy "characters visible to signed-in players" on public.characters
-  for select to authenticated using (true);
--- Creation is only through the RPC. No direct client writes are granted.
+
+drop policy if exists "signed-in players can read characters" on public.characters;
+create policy "signed-in players can read characters" on public.characters
+  for select to anon, authenticated using (true);
+
 revoke insert, update, delete on public.characters from anon, authenticated;
-grant select on public.characters to authenticated;
+grant select on public.characters to anon, authenticated;
 
-create or replace function public.create_character(
-  p_display_name text, p_age smallint, p_bio text, p_model_id text
-) returns public.characters
-language plpgsql security definer set search_path = '' as $$
-declare result public.characters;
+-- Atomic region assignment based on 25 registered characters per region:
+-- Citizen 001..025 -> Wilayah 1
+-- Citizen 026..050 -> Wilayah 2
+-- Citizen 051..075 -> Wilayah 3
+create or replace function public.assign_region_by_capacity()
+returns text
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_region_idx integer := 1;
+  v_count integer := 0;
 begin
-  if auth.uid() is null then raise exception 'Authentication required'; end if;
-  if char_length(trim(p_display_name)) not between 2 and 24 then raise exception 'Name must be 2 to 24 characters'; end if;
-  if p_age not between 18 and 99 then raise exception 'Age must be between 18 and 99'; end if;
-  if char_length(coalesce(p_bio, '')) > 120 then raise exception 'Bio is too long'; end if;
-  if p_model_id !~ '^(female|male)-(0[1-9]|1[0-9]|2[0-5])$' then raise exception 'Choose one of the 50 available models'; end if;
+  loop
+    select count(*) into v_count
+    from public.characters
+    where home_region = ('Wilayah ' || v_region_idx);
 
-  insert into public.characters(user_id, display_name, age, bio, model_id, avatar_color)
-  values (
-    auth.uid(), trim(p_display_name), p_age, coalesce(trim(p_bio), ''), p_model_id,
-    case when split_part(p_model_id, '-', 1) = 'female' then '#d98b71' else '#7d9b70' end
-  ) returning * into result;
-  return result;
-exception when unique_violation then
-  raise exception 'This account already has a character';
+    if v_count < 25 then
+      return 'Wilayah ' || v_region_idx;
+    end if;
+
+    v_region_idx := v_region_idx + 1;
+  end loop;
 end;
 $$;
-revoke all on function public.create_character(text, smallint, text, text) from public, anon;
-grant execute on function public.create_character(text, smallint, text, text) to authenticated;
 
--- Private channel authorization for world presence and position broadcasts.
-drop policy if exists "signed-in players can read world channel" on realtime.messages;
-create policy "signed-in players can read world channel" on realtime.messages
-  for select to authenticated using (realtime.topic() = 'world:1');
-drop policy if exists "signed-in players can write world channel" on realtime.messages;
-create policy "signed-in players can write world channel" on realtime.messages
-  for insert to authenticated with check (realtime.topic() = 'world:1');
+create or replace function public.create_character(
+  p_display_name text,
+  p_age integer,
+  p_bio text,
+  p_model_id text
+)
+returns public.characters
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_existing public.characters%rowtype;
+  v_result public.characters%rowtype;
+  v_region text;
+begin
+  if v_user_id is null then
+    raise exception 'Authentication required';
+  end if;
+
+  -- Lock per user and global character creation so region capacity (25) and starter sword are 100% atomic & idempotent
+  perform pg_advisory_xact_lock(hashtextextended('rimba:create-character-lock', 0));
+
+  -- Idempotency: if character already exists on retry, return existing character without duplicating starter sword
+  select * into v_existing from public.characters where user_id = v_user_id;
+  if found then
+    return v_existing;
+  end if;
+
+  v_region := public.assign_region_by_capacity();
+
+  insert into public.characters (
+    user_id,
+    display_name,
+    age,
+    bio,
+    model_id,
+    gender,
+    avatar_color,
+    home_region,
+    starter_sword_id
+  )
+  values (
+    v_user_id,
+    trim(p_display_name),
+    p_age,
+    coalesce(trim(p_bio), ''),
+    p_model_id,
+    case when p_model_id like 'female-%' then 'female' else 'male' end,
+    case when p_model_id like 'female-%' then '#4c956c' else '#3d7ea6' end,
+    v_region,
+    'sword_beginner_rimba'
+  )
+  returning * into v_result;
+
+  return v_result;
+end;
+$$;
+
+revoke all on function public.create_character(text, integer, text, text) from public, anon;
+grant execute on function public.create_character(text, integer, text, text) to authenticated;
+
+-- Realtime policies for regional channels (region:1, region:2, etc.)
+drop policy if exists "authenticated can receive world:1" on realtime.messages;
+drop policy if exists "authenticated can send world:1" on realtime.messages;
+drop policy if exists "players can receive region channels" on realtime.messages;
+drop policy if exists "players can send region channels" on realtime.messages;
+
+create policy "players can receive region channels" on realtime.messages
+  for select to anon, authenticated
+  using (realtime.topic() like 'region:%' or realtime.topic() = 'world:1');
+
+create policy "players can send region channels" on realtime.messages
+  for insert to anon, authenticated
+  with check (realtime.topic() like 'region:%' or realtime.topic() = 'world:1');

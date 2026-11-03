@@ -666,34 +666,310 @@
   padding-left: 18px;
 }
 
-@media (max-width: 640px) {
+.inv-item-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+.session-conflict-banner {
+  position: fixed;
+  top: 68px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 35;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: min(560px, calc(100vw - 20px));
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: rgba(127, 29, 29, 0.96);
+  border: 1.5px solid #fca5a5;
+  color: #fef2f2;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.45);
+}
+
+.session-conflict-banner[hidden] {
+  display: none !important;
+}
+
+.session-conflict-text {
+  display: grid;
+  gap: 2px;
+}
+
+.session-conflict-text strong {
+  font-size: 12px;
+  color: #fde047;
+}
+
+.session-conflict-text span {
+  font-size: 11px;
+  color: #fecaca;
+}
+
+.session-reclaim-btn {
+  flex-shrink: 0;
+  padding: 8px 12px;
+  min-height: 38px;
+  border-radius: 8px;
+  border: 1px solid #fde047;
+  background: #fef08a;
+  color: #1e293b;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+/* Bottom Hotbar Dock (Slot 1 Pedang Pemula Rimba + Consumables + Interact + Mobile Pan) */
+.hotbar-dock {
+  position: fixed;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  z-index: 16;
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  padding: 6px;
+  border-radius: 14px;
+  background: rgba(20, 35, 48, 0.94);
+  border: 2px solid #d4b475;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.45);
+  max-width: calc(100vw - 12px);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.hotbar-dock::-webkit-scrollbar {
+  display: none;
+}
+
+.hotbar-slot {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 68px;
+  height: 58px;
+  padding: 4px 8px;
+  border-radius: 10px;
+  border: 1.5px solid rgba(212, 180, 117, 0.45);
+  background: rgba(30, 51, 68, 0.92);
+  color: #f8fafc;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  overflow: hidden;
+  transition: transform 100ms ease, border-color 120ms ease, background-color 120ms ease;
+}
+
+.hotbar-slot:hover {
+  border-color: #fde047;
+  background: rgba(39, 67, 89, 0.96);
+}
+
+.hotbar-slot:active,
+.hotbar-slot.swing-flash {
+  transform: scale(0.95);
+  border-color: #fde047;
+  background: rgba(180, 83, 9, 0.55);
+}
+
+.hotbar-slot.active-weapon {
+  border-color: #f59e0b;
+  background: linear-gradient(180deg, rgba(120, 53, 15, 0.55) 0%, rgba(30, 51, 68, 0.95) 100%);
+  box-shadow: inset 0 0 10px rgba(245, 158, 11, 0.25);
+}
+
+.hotbar-slot.pan-active {
+  border-color: #38bdf8;
+  background: rgba(3, 105, 161, 0.75);
+}
+
+.hotbar-slot-pan {
+  display: none;
+}
+
+.hotbar-key {
+  position: absolute;
+  top: 3px;
+  left: 5px;
+  font-size: 8.5px;
+  font-weight: 800;
+  color: #cbd5e1;
+  background: rgba(15, 23, 42, 0.75);
+  padding: 1px 4px;
+  border-radius: 4px;
+  line-height: 1.1;
+}
+
+.hotbar-qty {
+  position: absolute;
+  top: 3px;
+  right: 5px;
+  font-size: 8.5px;
+  font-weight: 800;
+  color: #fde047;
+  font-variant-numeric: tabular-nums;
+}
+
+.hotbar-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-top: 6px;
+}
+
+.hotbar-icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.hotbar-emoji {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.hotbar-label {
+  font-size: 9px;
+  font-weight: 700;
+  color: #e2e8f0;
+  max-width: 72px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 2px;
+}
+
+.hotbar-cd-overlay {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 100%;
+  background: rgba(245, 158, 11, 0.32);
+  transform-origin: bottom;
+  transform: scaleY(0);
+  pointer-events: none;
+}
+
+@media (max-width: 768px) {
+  .dock-ktp-card,
+  .dock-btn,
+  .guide-floating-btn,
+  .world-info-floating-btn,
+  .context-prompt-pill,
+  .hotbar-dock {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  .hotbar-slot-pan {
+    display: flex;
+  }
+
   .right-dock {
-    top: 66px;
-    right: 10px;
+    top: 62px;
+    right: 8px;
+    gap: 5px;
   }
+
   .dock-ktp-card {
-    padding: 7px 10px;
+    padding: 6px 8px;
+    gap: 6px;
   }
+
   .dock-avatar-dot {
-    width: 40px;
-    height: 46px;
+    width: 34px;
+    height: 40px;
   }
+
+  .dock-meta strong {
+    font-size: 12px;
+    max-width: 96px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .dock-btn {
+    min-height: 40px;
+    padding: 7px 10px;
+    font-size: 11px;
+  }
+
   .bottom-right-dock {
-    right: 10px;
-    bottom: 12px;
+    right: 8px;
+    bottom: 80px;
+    gap: 6px;
   }
+
   .guide-floating-btn,
   .world-info-floating-btn {
+    min-height: 40px;
     padding: 8px 11px;
     font-size: 11px;
   }
+
   .context-prompt-pill {
-    bottom: 64px;
+    bottom: 82px;
     font-size: 11px;
     padding: 8px 13px;
+    max-width: calc(100vw - 24px);
+    text-align: center;
   }
+
+  .hotbar-dock {
+    bottom: 10px;
+    gap: 4px;
+    padding: 5px;
+    max-width: calc(100vw - 10px);
+  }
+
+  .hotbar-slot {
+    min-width: 58px;
+    height: 52px;
+    padding: 3px 5px;
+  }
+
+  .hotbar-label {
+    font-size: 8.5px;
+    max-width: 54px;
+  }
+
+  .phase2-dialog {
+    width: min(640px, calc(100vw - 14px));
+    max-height: min(82dvh, calc(100vh - 20px));
+    padding: 16px 12px;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
   .stat-grid,
   .creator-links-grid {
     grid-template-columns: 1fr;
   }
 }
+
+@media (max-width: 390px) {
+  .hotbar-slot {
+    min-width: 52px;
+    height: 50px;
+    padding: 2px 4px;
+  }
+  .hotbar-label {
+    max-width: 46px;
+    font-size: 8px;
+  }
+}
+

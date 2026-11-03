@@ -4,14 +4,17 @@ import {
   GAME_CONFIG,
   OUTFIT_CATALOG,
   ROOM_TIERS,
+  STARTER_SWORD_SPEC,
   WORLD_FACILITIES,
   WORSHIP_OPTIONS,
+  formatCitizenNumber,
   getWibTimeInfo,
   isArenaTile,
   isDungeon1Tile,
   isDungeon2Tile,
   localBackend,
   renderChibiCharacterSvg,
+  renderStarterSwordSvg,
   type AfkActivityType,
   type AfkSessionReport,
   type Character,
@@ -34,6 +37,15 @@ type PhaseTwoOptions = {
   hasCharacter: () => boolean;
   getPosition: () => Position | null;
   setPosition: (x: number, y: number) => void;
+  getOnlineCount?: () => number;
+  getServerRegionSummary?: () => {
+    regionName?: string;
+    regionCapacity?: number;
+    registeredInRegion?: number;
+    permanentInRegion?: number;
+    onlineInRegion?: number;
+    afkInRegion?: number;
+  } | undefined;
 };
 
 const escapeHtml = (value: string) =>
@@ -107,9 +119,39 @@ export function mountPhaseTwo(options: PhaseTwoOptions) {
     </aside>
 
     <div id="afk-banner" class="afk-mode-banner" style="display:none"></div>
+    <div id="session-conflict-banner" class="session-conflict-banner" style="display:none"></div>
     <div id="toast-banner" class="toast-banner" style="display:none"></div>
     <div id="death-overlay" class="death-overlay-banner" style="display:none"></div>
     <button type="button" id="context-interact-pill" class="context-prompt-pill" style="display:none"></button>
+
+    <nav class="hotbar-dock" id="hotbar-dock" aria-label="Hotbar">
+      <button type="button" class="hotbar-slot equipped" id="hotbar-slot-1" title="Pedang Pemula Rimba (Spasi / Space)">
+        <kbd class="hotbar-key">Space</kbd>
+        <span class="hotbar-icon">${renderStarterSwordSvg()}</span>
+        <span class="hotbar-label" id="hotbar-sword-label">Tebas</span>
+        <span class="hotbar-cd-overlay" id="hotbar-sword-cd"></span>
+      </button>
+      <button type="button" class="hotbar-slot" id="hotbar-slot-2" title="Bekal Nasi Rimba (+45 Stm, +10 HP)">
+        <kbd class="hotbar-key">2</kbd>
+        <span class="hotbar-icon">🍙</span>
+        <span class="hotbar-qty" id="hotbar-food-qty">0</span>
+      </button>
+      <button type="button" class="hotbar-slot" id="hotbar-slot-3" title="Teh Herba Hutan (+30 Stm)">
+        <kbd class="hotbar-key">3</kbd>
+        <span class="hotbar-icon">🍵</span>
+        <span class="hotbar-qty" id="hotbar-tea-qty">0</span>
+      </button>
+      <button type="button" class="hotbar-slot" id="hotbar-slot-4" title="Interaksi / Ambil Resource / Fasilitas (F)">
+        <kbd class="hotbar-key">F</kbd>
+        <span class="hotbar-icon">🖐️</span>
+        <span class="hotbar-label" id="hotbar-interact-label">Aksi</span>
+      </button>
+      <button type="button" class="hotbar-slot mobile-only-slot" id="hotbar-slot-pan" title="Mode Geser Kamera Sentuh">
+        <kbd class="hotbar-key">Cam</kbd>
+        <span class="hotbar-icon">🎥</span>
+        <span class="hotbar-label" id="hotbar-pan-label">Kamera</span>
+      </button>
+    </nav>
 
     <div class="bottom-right-dock">
       <button type="button" id="world-info-btn" class="world-info-floating-btn">🌐 <span id="world-info-btn-label">Info & Berita</span></button>
@@ -205,10 +247,26 @@ export function mountPhaseTwo(options: PhaseTwoOptions) {
     const guideLabel = document.querySelector<HTMLElement>('#guide-btn-label');
     const afkBanner = document.querySelector<HTMLElement>('#afk-banner');
 
+    const hotbarDock = document.querySelector<HTMLElement>('#hotbar-dock');
+    const hotbarSwordLabel = document.querySelector<HTMLElement>('#hotbar-sword-label');
+    const hotbarFoodQty = document.querySelector<HTMLElement>('#hotbar-food-qty');
+    const hotbarTeaQty = document.querySelector<HTMLElement>('#hotbar-tea-qty');
+    const hotbarInteractLabel = document.querySelector<HTMLElement>('#hotbar-interact-label');
+    const hotbarPanLabel = document.querySelector<HTMLElement>('#hotbar-pan-label');
+    const conflictTitle = document.querySelector<HTMLElement>('#session-conflict-title');
+    const conflictDesc = document.querySelector<HTMLElement>('#session-conflict-desc');
+    const conflictBtn = document.querySelector<HTMLButtonElement>('#session-reclaim-btn');
+
     if (invLabel) invLabel.textContent = lang === 'en' ? 'Bag' : 'Tas';
     if (worldLabel) worldLabel.textContent = lang === 'en' ? 'World & News' : 'Wilayah & Berita';
     if (worldBtnLabel) worldBtnLabel.textContent = dict.infoNewsBtn;
     if (guideLabel) guideLabel.textContent = dict.guideBtn;
+    if (hotbarSwordLabel) hotbarSwordLabel.textContent = dict.hotbarAttackLabel;
+    if (hotbarInteractLabel) hotbarInteractLabel.textContent = dict.hotbarInteractLabel;
+    if (hotbarPanLabel) hotbarPanLabel.textContent = dict.hotbarPanLabel;
+    if (conflictTitle) conflictTitle.textContent = dict.sessionConflictTitle;
+    if (conflictDesc) conflictDesc.textContent = dict.sessionConflictDesc;
+    if (conflictBtn) conflictBtn.textContent = dict.sessionReclaimBtn;
 
     if (!uid || !char) {
       if (subEl) subEl.textContent = lang === 'en' ? 'SPECTATOR MODE' : 'MODE PENONTON';
@@ -226,9 +284,11 @@ export function mountPhaseTwo(options: PhaseTwoOptions) {
       if (afkVaultLabel) afkVaultLabel.textContent = dict.afkVaultBtn;
       if (afkVaultBtn) afkVaultBtn.classList.remove('vault-ready');
       if (afkBanner) afkBanner.style.display = 'none';
+      if (hotbarDock) hotbarDock.style.display = 'none';
       return;
     }
 
+    if (hotbarDock) hotbarDock.style.display = 'flex';
     const inv = localBackend.getInventory(uid);
     const dead = getDeathState();
     const statusLabel =
@@ -237,7 +297,7 @@ export function mountPhaseTwo(options: PhaseTwoOptions) {
           ? 'RESIDENT'
           : 'CITIZEN'
         : char.residence_status.toUpperCase();
-    if (subEl) subEl.textContent = `${statusLabel} • #${String(char.citizen_number).padStart(5, '0')}`;
+    if (subEl) subEl.textContent = `${statusLabel} • #${formatCitizenNumber(char.citizen_number)}`;
     if (nameEl) nameEl.textContent = `${char.display_name} (${dict.ktpBtn})`;
     if (dotEl) {
       dotEl.style.background = 'linear-gradient(180deg, #dbeafe 0%, #dcfce7 75%)';
@@ -248,6 +308,8 @@ export function mountPhaseTwo(options: PhaseTwoOptions) {
     if (coinsEl) coinsEl.textContent = String(inv.coins);
     if (bankEl) bankEl.textContent = String(inv.bank_balance ?? 0);
     if (baitEl) baitEl.textContent = String(inv.fish_bait ?? 0);
+    if (hotbarFoodQty) hotbarFoodQty.textContent = `x${inv.food_rations ?? 0}`;
+    if (hotbarTeaQty) hotbarTeaQty.textContent = `x${inv.herbal_tea ?? 0}`;
 
     const vault = inv.afk_vault;
     const totalPending = vault ? vault.wood + vault.stone + vault.fish + vault.coins : 0;
@@ -388,7 +450,12 @@ export function mountPhaseTwo(options: PhaseTwoOptions) {
     notifyPlayerInput();
     const lang = options.getLang();
     const dict = t();
-    const stats = localBackend.getWorldRegionAndNewsStats();
+    const char = options.getCharacter();
+    const stats = localBackend.getWorldRegionAndNewsStats(
+      1,
+      char?.home_region ?? 'Wilayah 1',
+      options.getServerRegionSummary?.() ?? undefined
+    );
 
     const renderTabContent = (activeTab: 'region' | 'news' | 'creator') => {
       if (activeTab === 'region') {
@@ -550,7 +617,17 @@ export function mountPhaseTwo(options: PhaseTwoOptions) {
       cat: string;
       desc: string;
       actionHtml: string;
+      iconHtml?: string;
     }> = [];
+
+    items.push({
+      name: dict.starterSwordName,
+      qty: '1 unit',
+      cat: dict.catWeapon,
+      desc: `${dict.starterSwordDesc} (DMG ${STARTER_SWORD_SPEC.damage} · Range ${STARTER_SWORD_SPEC.range_tiles} · CD ${STARTER_SWORD_SPEC.cooldown_ms}ms)`,
+      actionHtml: `<button type="button" disabled title="${escapeHtml(dict.starterSwordBoundBadge)}">${escapeHtml(dict.starterSwordBoundBadge)}</button>`,
+      iconHtml: renderStarterSwordSvg(28),
+    });
 
     items.push({
       name: dict.itemBaitName,
@@ -681,9 +758,12 @@ export function mountPhaseTwo(options: PhaseTwoOptions) {
           .map(
             it => `
         <div class="phase2-listing">
-          <span>
-            <b>${escapeHtml(it.name)} <small style="color:#8c6b32">(${escapeHtml(it.cat)} · ${escapeHtml(it.qty)})</small></b>
-            <small>${escapeHtml(it.desc)}</small>
+          <span style="display:flex;align-items:center;gap:10px">
+            ${it.iconHtml ? `<span class="inv-item-icon">${it.iconHtml}</span>` : ''}
+            <span>
+              <b>${escapeHtml(it.name)} <small style="color:#8c6b32">(${escapeHtml(it.cat)} · ${escapeHtml(it.qty)})</small></b>
+              <small>${escapeHtml(it.desc)}</small>
+            </span>
           </span>
           ${it.actionHtml}
         </div>
@@ -986,7 +1066,7 @@ export function mountPhaseTwo(options: PhaseTwoOptions) {
         <div class="phase2-listing" style="margin-bottom:12px;background:#f5efe0">
           <span>
             <b>${lang === 'en' ? 'Residency Status' : 'Status Kependudukan'}: ${char.residence_status} (60% AFK Efficiency)</b>
-            <small>${lang === 'en' ? 'Citizen No.' : 'No. Warga'}: #${String(char.citizen_number).padStart(5, '0')} · ${lang === 'en' ? 'Forms Owned' : 'Formulir Dimiliki'}: ${inv.data_forms}</small>
+            <small>${lang === 'en' ? 'Citizen No.' : 'No. Warga'}: #${formatCitizenNumber(char.citizen_number)} · ${lang === 'en' ? 'Forms Owned' : 'Formulir Dimiliki'}: ${inv.data_forms}</small>
           </span>
           ${
             char.residence_status === 'Penduduk'
@@ -1053,8 +1133,8 @@ export function mountPhaseTwo(options: PhaseTwoOptions) {
           updateRightDock();
           showToast(
             lang === 'en'
-              ? `Citizen ID updated to "${updated.display_name}" (Citizen #${String(updated.citizen_number).padStart(5, '0')} unchanged).`
-              : `Data KTP diperbarui menjadi "${updated.display_name}" (No. Warga #${String(updated.citizen_number).padStart(5, '0')} tetap).`
+              ? `Citizen ID updated to "${updated.display_name}" (Citizen #${formatCitizenNumber(updated.citizen_number)} unchanged).`
+              : `Data KTP diperbarui menjadi "${updated.display_name}" (No. Warga #${formatCitizenNumber(updated.citizen_number)} tetap).`
           );
           void openFacilityById('balaikota');
         } catch (err) {
@@ -1708,6 +1788,64 @@ export function mountPhaseTwo(options: PhaseTwoOptions) {
   document.querySelector<HTMLButtonElement>('#guide-btn')!.onclick = openGuideModal;
   document.querySelector<HTMLButtonElement>('#context-interact-pill')!.onclick = triggerContextualAction;
 
+  const triggerHotbarSword = () => {
+    notifyPlayerInput();
+    window.dispatchEvent(new CustomEvent('rimba-trigger-sword-swing'));
+  };
+
+  const triggerHotbarConsumable = (itemType: 'food' | 'tea') => {
+    notifyPlayerInput();
+    const uid = options.getUserId();
+    const lang = options.getLang();
+    if (!uid || !options.hasCharacter()) {
+      showToast(t().spectatorBanner);
+      options.openCharacterCreator();
+      return;
+    }
+    try {
+      localBackend.consumeItem(uid, itemType, lang);
+      updateRightDock();
+      showToast(lang === 'en' ? 'Stamina & HP replenished!' : 'Stamina & HP berhasil dipulihkan!');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  document.querySelector<HTMLButtonElement>('#hotbar-slot-1')!.onclick = triggerHotbarSword;
+  document.querySelector<HTMLButtonElement>('#hotbar-slot-2')!.onclick = () => triggerHotbarConsumable('food');
+  document.querySelector<HTMLButtonElement>('#hotbar-slot-3')!.onclick = () => triggerHotbarConsumable('tea');
+  document.querySelector<HTMLButtonElement>('#hotbar-slot-4')!.onclick = triggerContextualAction;
+  document.querySelector<HTMLButtonElement>('#hotbar-slot-pan')!.onclick = () => {
+    window.dispatchEvent(new CustomEvent('rimba-toggle-pan-mode'));
+  };
+
+  document.querySelector<HTMLButtonElement>('#session-reclaim-btn')?.addEventListener('click', () => {
+    window.dispatchEvent(new CustomEvent('rimba-reclaim-session'));
+  });
+
+  window.addEventListener('rimba-sword-swung', event => {
+    const cdMs = (event as CustomEvent<{ cooldownMs?: number }>).detail?.cooldownMs ?? STARTER_SWORD_SPEC.cooldown_ms;
+    const slot1 = document.querySelector<HTMLElement>('#hotbar-slot-1');
+    const cdOverlay = document.querySelector<HTMLElement>('#hotbar-sword-cd');
+    if (slot1) {
+      slot1.classList.add('swing-flash');
+      window.setTimeout(() => slot1.classList.remove('swing-flash'), 220);
+    }
+    if (cdOverlay) {
+      cdOverlay.style.transition = 'none';
+      cdOverlay.style.transform = 'scaleY(1)';
+      void cdOverlay.offsetHeight;
+      cdOverlay.style.transition = `transform ${cdMs}ms linear`;
+      cdOverlay.style.transform = 'scaleY(0)';
+    }
+  });
+
+  window.addEventListener('rimba-pan-mode-changed', event => {
+    const active = Boolean((event as CustomEvent<{ active: boolean }>).detail?.active);
+    const panBtn = document.querySelector<HTMLButtonElement>('#hotbar-slot-pan');
+    if (panBtn) panBtn.classList.toggle('pan-active', active);
+  });
+
   window.addEventListener('keydown', event => {
     const active = document.activeElement;
     if (
@@ -1722,6 +1860,15 @@ export function mountPhaseTwo(options: PhaseTwoOptions) {
     } else if (event.key === 'f' || event.key === 'F') {
       event.preventDefault();
       triggerContextualAction();
+    } else if (event.key === '1') {
+      event.preventDefault();
+      triggerHotbarSword();
+    } else if (event.key === '2') {
+      event.preventDefault();
+      triggerHotbarConsumable('food');
+    } else if (event.key === '3') {
+      event.preventDefault();
+      triggerHotbarConsumable('tea');
     }
   });
 

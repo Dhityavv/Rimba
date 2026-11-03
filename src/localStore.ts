@@ -24,8 +24,55 @@ export type Character = {
   hat_id: string;
   residence_status: 'Warga' | 'Penduduk';
   home_region: string;
+  starter_sword_id?: string;
+  hotbar_slot_1?: string;
+  sword_bound?: boolean;
   created_at: string;
 };
+
+export type WeaponSpec = {
+  id: string;
+  name_id: string;
+  name_en: string;
+  damage: number;
+  range_tiles: number;
+  cooldown_ms: number;
+  bound: boolean;
+  hotbar_slot: number;
+  desc_id: string;
+  desc_en: string;
+};
+
+export const STARTER_SWORD_SPEC: WeaponSpec = {
+  id: 'sword_beginner_rimba',
+  name_id: 'Pedang Pemula Rimba',
+  name_en: 'Rimba Beginner Sword',
+  damage: 25,
+  range_tiles: 2.5,
+  cooldown_ms: 550,
+  bound: true,
+  hotbar_slot: 1,
+  desc_id:
+    'Pedang baja ringan bergagang kayu cokelat yang diberikan kepada setiap warga baru saat menerbitkan KTP game. Terpasang otomatis di Hotbar Slot 1 dan terikat pada pemilik (tidak dapat dijual, dibuang, atau dipindahkan).',
+  desc_en:
+    'A balanced light-steel blade with a brown wooden hilt granted to every new citizen upon issuing a Game ID. Automatically equipped in Hotbar Slot 1 and bound to owner (cannot be sold, dropped, or transferred).',
+};
+
+export function formatCitizenNumber(num: number): string {
+  return String(Math.max(1, Math.floor(Number(num) || 1))).padStart(3, '0');
+}
+
+export function renderStarterSwordSvg(size = 24): string {
+  return `<svg class="sword-svg-icon" width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36" fill="none">
+    <ellipse cx="18" cy="31" rx="9" ry="2.5" fill="rgba(15,23,42,0.28)"/>
+    <path d="M28.5 5.5L23.5 7.2L11.2 19.5L16.5 24.8L28.8 12.5L30.5 7.5L28.5 5.5Z" fill="#e2e8f0" stroke="#231815" stroke-width="1.8" stroke-linejoin="round"/>
+    <path d="M28.5 5.5L13.8 20.2L16.5 24.8L28.8 12.5L30.5 7.5L28.5 5.5Z" fill="#94a3b8"/>
+    <path d="M26.8 8.2L15.2 19.8" stroke="#ffffff" stroke-width="1.4" stroke-linecap="round"/>
+    <path d="M9.2 17.2L18.8 26.8L16.6 29.0L7.0 19.4L9.2 17.2Z" fill="#d97706" stroke="#231815" stroke-width="1.7" stroke-linejoin="round"/>
+    <path d="M11.2 24.2L6.4 29.0L9.0 31.6L13.8 26.8L11.2 24.2Z" fill="#78350f" stroke="#231815" stroke-width="1.7" stroke-linejoin="round"/>
+    <circle cx="6.5" cy="30.5" r="2.3" fill="#b45309" stroke="#231815" stroke-width="1.5"/>
+  </svg>`;
+}
 
 export type RoomRental = {
   tier_id: 'basic' | 'comfort' | 'suite';
@@ -331,6 +378,10 @@ export type Inventory = {
   max_stamina: number;
   max_capacity: number;
   owned_outfits: string[];
+  owned_weapons: string[];
+  equipped_weapon_id: string;
+  hotbar: Array<string | null>;
+  starter_sword_granted: boolean;
   active_room: RoomRental | null;
   dead_until: string | null;
   awaiting_revive: boolean;
@@ -617,7 +668,8 @@ export const GAME_CONFIG = {
   DEATH_COOLDOWN_MS: 10 * 60 * 1000, // 10 minutes server-validated cooldown
   DEATH_PENALTY_RATE: 0.10, // Exactly 10% of carried coins (Bank savings are safe!)
   HARVEST_COOLDOWN_MS: 2200,
-  ATTACK_COOLDOWN_MS: 750,
+  ATTACK_COOLDOWN_MS: 550,
+  SWORD_COOLDOWN_MS: 550,
   INTERACT_RANGE_TILES: 3.8,
   PLAYER_ATTACK_DAMAGE: 25,
   PLAYER_ATTACK_RANGE_TILES: 2.5,
@@ -655,17 +707,45 @@ export const GAME_CONFIG = {
 };
 
 const STORAGE_KEYS = {
-  SESSION: 'rimba_session_v3',
-  USERS: 'rimba_users_v3',
-  CHARACTERS: 'rimba_characters_v3',
-  INVENTORIES: 'rimba_inventories_v3',
-  POSITIONS: 'rimba_positions_v3',
-  WORK_NODES: 'rimba_work_nodes_v3',
-  LISTINGS: 'rimba_listings_v3',
-  ROOM_BOOKINGS: 'rimba_room_bookings_v3',
-  CITIZEN_SEQ: 'rimba_citizen_seq_v3',
-  IDENTITY_LOGS: 'rimba_identity_logs_v3',
+  RESET_FLAG: 'rimba_test_reset_v4_done',
+  SESSION: 'rimba_session_v4_clean',
+  USERS: 'rimba_users_v4_clean',
+  CHARACTERS: 'rimba_characters_v4_clean',
+  INVENTORIES: 'rimba_inventories_v4_clean',
+  POSITIONS: 'rimba_positions_v4_clean',
+  WORK_NODES: 'rimba_work_nodes_v4_clean',
+  LISTINGS: 'rimba_listings_v4_clean',
+  ROOM_BOOKINGS: 'rimba_room_bookings_v4_clean',
+  CITIZEN_SEQ: 'rimba_citizen_seq_v4_clean',
+  IDENTITY_LOGS: 'rimba_identity_logs_v4_clean',
 };
+
+function ensureCleanResetV4(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    if (window.localStorage.getItem(STORAGE_KEYS.RESET_FLAG) === 'true') return;
+    const legacyKeys: string[] = [];
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const k = window.localStorage.key(i);
+      if (
+        k &&
+        k.startsWith('rimba_') &&
+        k !== 'rimba_lang_v2' &&
+        !k.endsWith('_v4_clean') &&
+        k !== STORAGE_KEYS.RESET_FLAG
+      ) {
+        legacyKeys.push(k);
+      }
+    }
+    for (const k of legacyKeys) {
+      window.localStorage.removeItem(k);
+    }
+    window.localStorage.setItem(STORAGE_KEYS.CITIZEN_SEQ, '0');
+    window.localStorage.setItem(STORAGE_KEYS.RESET_FLAG, 'true');
+  } catch {
+    // Ignore storage access errors
+  }
+}
 
 export const DEFAULT_WORK_NODES: WorkNode[] = [
   // Dedicated Logging Camp (Area Kerja Kayu) — East (44, 28)
@@ -931,18 +1011,25 @@ class LocalGameBackend {
   private reviveInProgressUsers = new Set<string>();
 
   getSessionUser(): LocalUser | null {
+    ensureCleanResetV4();
     return readJson<LocalUser | null>(STORAGE_KEYS.SESSION, null);
   }
 
+  setSessionUser(user: LocalUser): void {
+    ensureCleanResetV4();
+    writeJson(STORAGE_KEYS.SESSION, user);
+  }
+
   signInAnonymously(): LocalUser {
+    ensureCleanResetV4();
     const existing = this.getSessionUser();
     if (existing) return existing;
     const guestId =
-      typeof window !== 'undefined' && window.localStorage.getItem('rimba_guest_uid')
-        ? window.localStorage.getItem('rimba_guest_uid')!
+      typeof window !== 'undefined' && window.localStorage.getItem('rimba_guest_uid_v4_clean')
+        ? window.localStorage.getItem('rimba_guest_uid_v4_clean')!
         : `guest-${crypto.randomUUID()}`;
     if (typeof window !== 'undefined') {
-      window.localStorage.setItem('rimba_guest_uid', guestId);
+      window.localStorage.setItem('rimba_guest_uid_v4_clean', guestId);
     }
     const user: LocalUser = { id: guestId, is_anonymous: true };
     writeJson(STORAGE_KEYS.SESSION, user);
@@ -950,6 +1037,7 @@ class LocalGameBackend {
   }
 
   signUpWithEmail(email: string, password: string, lang: Lang = 'id'): LocalUser {
+    ensureCleanResetV4();
     const cleanEmail = email.trim().toLowerCase();
     if (!cleanEmail || password.length < 8) {
       throw new Error(
@@ -975,6 +1063,7 @@ class LocalGameBackend {
   }
 
   signInWithEmail(email: string, password: string, lang: Lang = 'id'): LocalUser {
+    ensureCleanResetV4();
     const cleanEmail = email.trim().toLowerCase();
     const users = readJson<Record<string, { id: string; email: string; password: string }>>(STORAGE_KEYS.USERS, {});
     const found = users[cleanEmail];
@@ -987,6 +1076,7 @@ class LocalGameBackend {
   }
 
   linkGuestToEmail(userId: string, email: string, password: string, lang: Lang = 'id'): LocalUser {
+    ensureCleanResetV4();
     const cleanEmail = email.trim().toLowerCase();
     if (!cleanEmail || password.length < 8) {
       throw new Error(
@@ -1016,11 +1106,42 @@ class LocalGameBackend {
   }
 
   getCharacter(userId: string): Character | null {
+    ensureCleanResetV4();
     const all = readJson<Record<string, Character>>(STORAGE_KEYS.CHARACTERS, {});
     return all[userId] ?? null;
   }
 
-  private assignRegion(): string {
+  saveCharacterRecord(char: Character): Character {
+    ensureCleanResetV4();
+    const all = readJson<Record<string, Character>>(STORAGE_KEYS.CHARACTERS, {});
+    const enriched: Character = {
+      ...char,
+      starter_sword_id: char.starter_sword_id || STARTER_SWORD_SPEC.id,
+      hotbar_slot_1: char.hotbar_slot_1 || STARTER_SWORD_SPEC.id,
+      sword_bound: true,
+    };
+    all[char.user_id] = enriched;
+    writeJson(STORAGE_KEYS.CHARACTERS, all);
+    const curSeq = readJson<number>(STORAGE_KEYS.CITIZEN_SEQ, 0);
+    if (enriched.citizen_number > curSeq) {
+      writeJson(STORAGE_KEYS.CITIZEN_SEQ, enriched.citizen_number);
+    }
+    this.getInventory(char.user_id);
+    return enriched;
+  }
+
+  syncServerCharacter(userId: string, char: Character): Character {
+    return this.saveCharacterRecord({ ...char, user_id: userId });
+  }
+
+  /**
+   * Automatic Region assignment based on 25 registered characters per region:
+   * - Citizen 001..025 -> Wilayah 1
+   * - Citizen 026..050 -> Wilayah 2
+   * - Citizen 051..075 -> Wilayah 3
+   */
+  public assignRegionByCitizenNumber(citizenNumber: number): string {
+    const primaryRegionIdx = Math.max(1, Math.ceil(citizenNumber / GAME_CONFIG.REGION_CAPACITY));
     const all = Object.values(readJson<Record<string, Character>>(STORAGE_KEYS.CHARACTERS, {}));
     const regionCounts = new Map<number, number>();
     for (const c of all) {
@@ -1028,7 +1149,7 @@ class LocalGameBackend {
       const r = m ? Number(m[1]) : 1;
       regionCounts.set(r, (regionCounts.get(r) ?? 0) + 1);
     }
-    let regionIndex = 1;
+    let regionIndex = primaryRegionIdx;
     while ((regionCounts.get(regionIndex) ?? 0) >= GAME_CONFIG.REGION_CAPACITY) {
       regionIndex++;
     }
@@ -1040,13 +1161,11 @@ class LocalGameBackend {
     params: { p_display_name: string; p_age: number; p_bio: string; p_model_id: string },
     lang: Lang = 'id'
   ): Character {
+    ensureCleanResetV4();
     const all = readJson<Record<string, Character>>(STORAGE_KEYS.CHARACTERS, {});
     if (all[userId]) {
-      throw new Error(
-        lang === 'en'
-          ? 'One account may only have one character and one Citizen ID.'
-          : 'Satu akun hanya boleh memiliki satu karakter dan satu KTP game.'
-      );
+      this.getInventory(userId);
+      return all[userId]!;
     }
     const name = validateAndModerateCharacterName(params.p_display_name, lang);
     const age = Number(params.p_age);
@@ -1072,9 +1191,9 @@ class LocalGameBackend {
     }
 
     const nextSeq = readJson<number>(STORAGE_KEYS.CITIZEN_SEQ, 0) + 1;
-    writeJson(STORAGE_KEYS.CITIZEN_SEQ, nextSeq);
-
+    const assignedRegion = this.assignRegionByCitizenNumber(nextSeq);
     const spec = getCharacterModelSpec(params.p_model_id);
+
     const character: Character = {
       user_id: userId,
       citizen_number: nextSeq,
@@ -1087,10 +1206,14 @@ class LocalGameBackend {
       outfit_id: 'tunika-rimba',
       hat_id: 'none',
       residence_status: 'Warga',
-      home_region: this.assignRegion(),
+      home_region: assignedRegion,
+      starter_sword_id: STARTER_SWORD_SPEC.id,
+      hotbar_slot_1: STARTER_SWORD_SPEC.id,
+      sword_bound: true,
       created_at: new Date().toISOString(),
     };
 
+    writeJson(STORAGE_KEYS.CITIZEN_SEQ, nextSeq);
     all[userId] = character;
     writeJson(STORAGE_KEYS.CHARACTERS, all);
 
@@ -1101,6 +1224,7 @@ class LocalGameBackend {
   }
 
   getInventory(userId: string): Inventory {
+    ensureCleanResetV4();
     const all = readJson<Record<string, Inventory>>(STORAGE_KEYS.INVENTORIES, {});
     const wib = getWibTimeInfo();
     if (!all[userId]) {
@@ -1136,6 +1260,10 @@ class LocalGameBackend {
         max_stamina: 100,
         max_capacity: 120,
         owned_outfits: ['tunika-rimba', 'none'],
+        owned_weapons: [STARTER_SWORD_SPEC.id],
+        equipped_weapon_id: STARTER_SWORD_SPEC.id,
+        hotbar: [STARTER_SWORD_SPEC.id, 'food', 'tea', 'interact'],
+        starter_sword_granted: true,
         active_room: null,
         dead_until: null,
         awaiting_revive: false,
@@ -1155,6 +1283,14 @@ class LocalGameBackend {
       writeJson(STORAGE_KEYS.INVENTORIES, all);
     }
     const inv = all[userId]!;
+    if (!Array.isArray(inv.owned_weapons) || !inv.owned_weapons.includes(STARTER_SWORD_SPEC.id)) {
+      inv.owned_weapons = [STARTER_SWORD_SPEC.id];
+    }
+    inv.equipped_weapon_id = STARTER_SWORD_SPEC.id;
+    inv.starter_sword_granted = true;
+    if (!Array.isArray(inv.hotbar) || inv.hotbar[0] !== STARTER_SWORD_SPEC.id) {
+      inv.hotbar = [STARTER_SWORD_SPEC.id, 'food', 'tea', 'interact'];
+    }
     if (typeof inv.fish !== 'number') inv.fish = 0;
     if (typeof inv.fish_bait !== 'number') inv.fish_bait = 6;
     if (typeof inv.crystal_shard !== 'number') inv.crystal_shard = 0;
@@ -2535,89 +2671,95 @@ class LocalGameBackend {
     };
   }
 
-  // Returns simulated AFK citizens (registered citizen accounts in Wilayah 1)
-  getSimulatedRegionAfkCitizens(): SimulatedAfkCitizen[] {
-    const list: SimulatedAfkCitizen[] = [
-      {
-        id: 'sim-afk-1',
-        display_name: 'Nadia',
-        model_id: 'female-01',
-        activity: 'stroll',
-        waypoints: [
-          { x: 26, y: 30 },
-          { x: 30, y: 30 },
-          { x: 30, y: 26 },
-          { x: 26, y: 26 },
-        ],
-        phaseOffset: 0,
-      },
-      {
-        id: 'sim-afk-2',
-        display_name: 'Rizky',
-        model_id: 'male-02',
-        activity: 'wood',
-        waypoints: [
-          { x: 43, y: 27 },
-          { x: 46, y: 28 },
-          { x: 44, y: 30 },
-        ],
-        phaseOffset: 17,
-      },
-      {
-        id: 'sim-afk-3',
-        display_name: 'Bagas',
-        model_id: 'male-05',
-        activity: 'stone',
-        waypoints: [
-          { x: 37, y: 44 },
-          { x: 40, y: 45 },
-          { x: 38, y: 46 },
-        ],
-        phaseOffset: 33,
-      },
-      {
-        id: 'sim-afk-4',
-        display_name: 'Kirana',
-        model_id: 'female-04',
-        activity: 'fish',
-        waypoints: [
-          { x: 27, y: 14 },
-          { x: 29, y: 14 },
-        ],
-        phaseOffset: 49,
-      },
-      {
-        id: 'sim-afk-5',
-        display_name: 'Aldo',
-        model_id: 'male-08',
-        activity: 'dungeon',
-        waypoints: [
-          { x: 9, y: 12 },
-          { x: 11, y: 11 },
-        ],
-        phaseOffset: 65,
-      },
-    ];
-    return list.slice(0, GAME_CONFIG.MAX_SIMULATED_AFK_PER_REGION);
+  /**
+   * Section 4: Arena PvP damage application when hit by another live player inside the Arena.
+   */
+  applyPvpDamageFromPlayer(
+    userId: string,
+    attackerName: string,
+    damage: number,
+    lang: Lang = 'id'
+  ): { hp: number; maxHp: number; died: boolean; penalty: number; message: string } {
+    const inv = this.getInventory(userId);
+    if (this.isDownedOrWaitingRevive(userId).downed) {
+      return { hp: inv.hp, maxHp: inv.max_hp, died: false, penalty: 0, message: '' };
+    }
+    inv.hp = Math.max(0, inv.hp - damage);
+    if (inv.hp <= 0) {
+      const penalty = Math.floor(inv.coins * GAME_CONFIG.DEATH_PENALTY_RATE);
+      inv.coins = Math.max(0, inv.coins - penalty);
+      inv.last_death_penalty = penalty;
+      inv.last_death_id = `pvp-death-${Date.now()}`;
+      inv.dead_until = new Date(Date.now() + GAME_CONFIG.DEATH_COOLDOWN_MS).toISOString();
+      inv.awaiting_revive = true;
+      inv.player_status = 'recovering';
+      this.saveInventory(userId, inv);
+      return {
+        hp: 0,
+        maxHp: inv.max_hp,
+        died: true,
+        penalty,
+        message:
+          lang === 'en'
+            ? `Defeated in Arena PvP by ${attackerName}! Carried coins -10% (-${penalty} coins; Bank safe).`
+            : `Kamu kalah duel Arena melawan ${attackerName}! Coin dibawa -10% (-${penalty} coin; Bank aman).`,
+      };
+    }
+    this.saveInventory(userId, inv);
+    return {
+      hp: inv.hp,
+      maxHp: inv.max_hp,
+      died: false,
+      penalty: 0,
+      message:
+        lang === 'en'
+          ? `Hit by ${attackerName}'s sword in Arena (-${damage} HP · HP ${inv.hp}/${inv.max_hp})`
+          : `Terkena tebasan pedang ${attackerName} di Arena (-${damage} HP · HP ${inv.hp}/${inv.max_hp})`,
+    };
   }
 
-  getWorldRegionAndNewsStats(onlineNowCount = 1) {
-    const chars = Object.values(readJson<Record<string, Character>>(STORAGE_KEYS.CHARACTERS, {}));
-    const simCitizens = this.getSimulatedRegionAfkCitizens();
-    // Total registered citizens in Wilayah 1 (18 registered citizens in Region 1, capped at 25)
-    const totalRegisteredCitizens = Math.min(GAME_CONFIG.REGION_CAPACITY, Math.max(18, 17 + chars.length));
-    const totalPermanentResidents = chars.filter(c => c.residence_status === 'Penduduk').length + 7;
-    const activeOnlinePlayers = Math.max(1, onlineNowCount);
+  // Section 3: All dummy/sample characters removed. Only real registered KTP player characters exist.
+  getSimulatedRegionAfkCitizens(): SimulatedAfkCitizen[] {
+    return [];
+  }
+
+  getWorldRegionAndNewsStats(
+    onlineNowCount = 1,
+    activeRegionName = 'Wilayah 1',
+    serverSummary?: {
+      regionName?: string;
+      regionCapacity?: number;
+      registeredInRegion?: number;
+      permanentInRegion?: number;
+      onlineInRegion?: number;
+      afkInRegion?: number;
+    }
+  ) {
+    ensureCleanResetV4();
+    const allChars = Object.values(readJson<Record<string, Character>>(STORAGE_KEYS.CHARACTERS, {}));
+    const regionName = serverSummary?.regionName || activeRegionName || 'Wilayah 1';
+    const regionChars = allChars.filter(c => c.home_region === regionName);
+
+    const totalRegisteredCitizens = Math.min(
+      GAME_CONFIG.REGION_CAPACITY,
+      Math.max(regionChars.length, serverSummary?.registeredInRegion ?? 0)
+    );
+    const totalPermanentResidents = Math.max(
+      regionChars.filter(c => c.residence_status === 'Penduduk').length,
+      serverSummary?.permanentInRegion ?? 0
+    );
+    const activeOnlinePlayers = Math.max(onlineNowCount, serverSummary?.onlineInRegion ?? 0);
+    const afkCount = serverSummary?.afkInRegion ?? 0;
 
     return {
-      regionName: 'Wilayah 1',
+      regionName,
       regionCapacity: GAME_CONFIG.REGION_CAPACITY,
       totalRegisteredCitizens,
       totalPermanentResidents,
       onlineNow: activeOnlinePlayers,
       activeOnlinePlayers,
-      visualAfkActive: simCitizens.length,
-      visualSimulatedAfkActive: simCitizens.length,
+      visualAfkActive: afkCount,
+      visualSimulatedAfkActive: afkCount,
       regionPopulationDisplay: `${totalRegisteredCitizens} / ${GAME_CONFIG.REGION_CAPACITY}`,
       afkDistribution: {
         stroll: 50,
@@ -2628,64 +2770,88 @@ class LocalGameBackend {
       },
       news: [
         {
-          id: 'news-rev-afk-vault',
-          date: '03 November 2026',
-          category_id: 'AFK',
-          category_en: 'AFK',
-          title_id: 'Pembaruan Siklus AFK 3 Menit & Penampung Hasil AFK (60%)',
-          title_en: '3-Minute AFK Cycle & AFK Rewards Holding Vault (60%)',
-          body_id:
-            'Siklus AFK kini berlangsung selama 3 menit berkeliling aman dan 3 menit bekerja secara bergantian (Kayu, Batu, Memancing, serta 5% peluang ke Dungeon dengan 5% risiko gugur). Seluruh hasil AFK (efisiensi 60%) disimpan di menu Hasil AFK untuk diklaim manual.',
-          body_en:
-            'AFK cycles now alternate between 3 minutes strolling and 3 minutes working (Wood, Stone, Fishing, plus a 5% Dungeon chance with 5% defeat risk). All AFK rewards (60% efficiency) enter the AFK Rewards vault for manual claiming.',
-        },
-        {
-          id: 'news-rev-bank',
-          date: '03 November 2026',
-          category_id: 'Ekonomi',
-          category_en: 'Economy',
-          title_id: 'Pembukaan Bank Rimba Central & Bunga Harian 3% (12:00 WIB)',
-          title_en: 'Rimba Central Bank Opening & 3% Daily Interest (12:00 WIB)',
-          body_id:
-            'Warga kini dapat menyetor dan menarik coin langsung di bangunan Bank Rimba (25, 22). Coin di tabungan aman dari penalti kematian 10% dan memperoleh bunga 3% per hari setiap pukul 12:00 WIB.',
-          body_en:
-            'Citizens can now deposit and withdraw coins directly at Rimba Bank (25, 22). Bank savings are protected from the 10% death penalty and earn 3% daily interest reset at 12:00 WIB.',
-        },
-        {
-          id: 'news-rev-dungeon-arena',
-          date: '03 November 2026',
-          category_id: 'Dungeon',
-          category_en: 'Dungeon',
-          title_id: 'Mekanik Monster Slime & Goblin, Serangan Spasi, serta Zona Arena PvP',
-          title_en: 'Slime & Goblin Monster Mechanics, Spacebar Attack & PvP Arena Zone',
-          body_id:
-            'Dungeon Atas kini dihuni Slime dan Dungeon Bawah dihuni Goblin (tanpa boss). Gunakan tombol Spasi untuk menyerang tanpa mengurangi HP sendiri; HP hanya berkurang bila monster menyerang balik. Arena kini menjadi zona fisik PvP aktif.',
-          body_en:
-            'Upper Dungeon now hosts Slimes and Lower Dungeon hosts Goblins (no bosses). Press Spacebar to attack without self-damage; HP only drops when a monster counterattacks. The Arena is now a live physical PvP zone.',
-        },
-        {
-          id: 'news-rev-revive-ui',
-          date: '03 November 2026',
-          category_id: 'Gameplay',
-          category_en: 'Gameplay',
-          title_id: 'Sistem Tombol Bangkit / Revive, Penghapusan NPC & Kontrol Kamera Klik Kanan',
-          title_en: 'Manual Revive Button, All-Player World (No NPCs) & Right-Click Camera Drag',
-          body_id:
-            'Seluruh NPC telah dihapus sehingga dunia Rimba murni dihuni karakter pemain ber-KTP. Setelah cooldown pingsan 10 menit mencapai 00:00, tekan tombol Bangkit / Revive untuk respawn di Rumah Sakit. Gunakan klik kanan tahan & geser untuk menggerakkan kamera kapan saja.',
-          body_en:
-            'All NPCs have been removed so Rimba is purely inhabited by KTP player characters. When the 10-minute defeat cooldown hits 00:00, click Revive to respawn at the Hospital. Hold right-click & drag to pan the camera anytime.',
-        },
-        {
-          id: 'news-rev-ktp-ui',
+          id: 'news-rev-starter-sword',
           date: '03 November 2026',
           category_id: 'UI',
           category_en: 'UI',
-          title_id: 'Perbaikan Bingkai Avatar KTP & Jam Dunia WIB Real-Time',
-          title_en: 'KTP Avatar Frame Fix & Real-Time WIB World Clock',
+          title_id: 'Pedang Pemula Rimba & Hotbar Slot 1 Otomatis Saat Terbit KTP',
+          title_en: 'Rimba Beginner Sword & Automatic Hotbar Slot 1 on Citizen ID Creation',
           body_id:
-            'Tampilan avatar Chibi pada kartu KTP utama dan detail KTP telah diperbaiki agar utuh dan proporsional di desktop maupun ponsel, dilengkapi indikator jam WIB (Asia/Jakarta) di bar atas.',
+            'Setiap karakter baru yang menerbitkan KTP game kini langsung menerima 1 Pedang Pemula Rimba (Damage 25, Jangkauan 2.5 tile, Cooldown 0.55 dtk) secara atomik di Inventory dan Hotbar Slot 1. Pedang terikat pada pemilik dan tidak dapat dijual, dibuang, atau diduplikasi.',
           body_en:
-            'Chibi avatar framing on the main KTP dock and KTP detail modal has been fixed so head and body render proportionally on desktop and mobile, alongside a live WIB (Asia/Jakarta) clock in the top bar.',
+            'Every new character issuing a Game ID now atomically receives 1 Rimba Beginner Sword (25 Damage, 2.5-tile Range, 0.55s Cooldown) in their Inventory and Hotbar Slot 1. The starter sword is bound and cannot be sold, dropped, or duplicated.',
+        },
+        {
+          id: 'news-rev-sword-swing',
+          date: '03 November 2026',
+          category_id: 'Gameplay',
+          category_en: 'Gameplay',
+          title_id: 'Animasi Ayunan Pedang 8 Arah dengan Tombol Spasi / Tombol Serang',
+          title_en: '8-Directional Sword Swing Animation with Spacebar / Attack Button',
+          body_id:
+            'Menekan Spasi (atau tombol tebasan di layar ponsel) memainkan animasi persiapan, ayunan bilah baja mengikuti arah hadap karakter, dan kembali ke posisi siap. Dapat dimainkan sebagai ayunan kosong maupun menyerang monster/pemain Arena dalam jangkauan valid.',
+          body_en:
+            'Pressing Spacebar (or the mobile slash button) plays a windup, directional steel-blade slash arc matching character facing direction, and recovery. Works as an empty swing or hits valid monsters/Arena players in range.',
+        },
+        {
+          id: 'news-rev-multiplayer-live',
+          date: '03 November 2026',
+          category_id: 'Multiplayer',
+          category_en: 'Multiplayer',
+          title_id: 'Dunia Bersama Multiplayer Live Lintas Perangkat (Channel per Wilayah)',
+          title_en: 'Cross-Device Shared Live Multiplayer World (Per-Region Channels)',
+          body_id:
+            'Pemain dari laptop, ponsel, dan browser berbeda di Wilayah yang sama kini terhubung ke dunia bersama secara live (channel region:1, region:2, dst.) dengan interpolasi posisi halus, sinkronisasi nama KTP, status AFK, ayunan pedang, serta proteksi sesi tunggal per akun.',
+          body_en:
+            'Players on laptops, phones, and different browsers in the same Region now share a live world (channels region:1, region:2, etc.) with smooth interpolation, KTP name tags, AFK badges, sword swings, and single-active-session account protection.',
+        },
+        {
+          id: 'news-rev-region-capacity',
+          date: '03 November 2026',
+          category_id: 'World',
+          category_en: 'World',
+          title_id: 'Penempatan Wilayah Otomatis Berdasarkan Kapasitas (25 Karakter / Wilayah)',
+          title_en: 'Automatic Region Assignment by Capacity (25 Characters / Region)',
+          body_id:
+            'Setiap Wilayah memiliki kapasitas maksimal 25 karakter terdaftar. Warga #001–#025 ditempatkan otomatis di Wilayah 1, #026–#050 di Wilayah 2, dan seterusnya secara atomik di server.',
+          body_en:
+            'Each Region holds a maximum of 25 registered characters. Citizens #001–#025 are automatically assigned to Region 1, #026–#050 to Region 2, and so on atomically on the server.',
+        },
+        {
+          id: 'news-rev-mobile-opt',
+          date: '03 November 2026',
+          category_id: 'Performance',
+          category_en: 'Performance',
+          title_id: 'Optimasi Performa Mobile, Viewport Culling & Kontrol Sentuh Responsif',
+          title_en: 'Mobile Performance Optimization, Viewport Culling & Responsive Touch Controls',
+          body_id:
+            'Dilengkapi viewport culling untuk objek di luar kamera, kualitas grafis adaptif, penghapusan blur berat di ponsel, Hotbar proporsional bebas potong di layar 360px, serta mode geser kamera sentuh.',
+          body_en:
+            'Added camera viewport culling for off-screen objects, adaptive graphics quality, removal of heavy mobile CSS blurs, a non-clipping 360px mobile Hotbar, and touch camera panning.',
+        },
+        {
+          id: 'news-rev-clean-reset-001',
+          date: '03 November 2026',
+          category_id: 'System',
+          category_en: 'System',
+          title_id: 'Pembersihan Data Uji, Penghapusan Karakter Contoh & Reset Nomor Warga #001',
+          title_en: 'Test Data Cleanup, Dummy Character Removal & Citizen #001 Sequence Reset',
+          body_id:
+            'Seluruh karakter dummy, NPC, akun uji, dan data sementara telah dibersihkan. Urutan nomor warga direset secara atomik mulai dari #001 untuk karakter pertama dan dilanjutkan ke #002.',
+          body_en:
+            'All dummy characters, NPCs, test accounts, and temporary data have been purged. The citizen number sequence has been atomically reset starting at #001 for the first character and continuing from #002.',
+        },
+        {
+          id: 'news-rev-bank-afk',
+          date: '03 November 2026',
+          category_id: 'Ekonomi',
+          category_en: 'Economy',
+          title_id: 'Bank Rimba Central (Bunga 3% 12:00 WIB) & Penampung Hasil AFK (60%)',
+          title_en: 'Rimba Central Bank (3% Interest at 12:00 WIB) & AFK Rewards Vault (60%)',
+          body_id:
+            'Tabungan di Bank Rimba (25, 22) aman dari penalti kematian 10% dan berbunga 3% setiap pukul 12:00 WIB. Siklus AFK 3 menit jalan + 3 menit kerja menyimpan hasil (60%) di menu Hasil AFK untuk diklaim manual.',
+          body_en:
+            'Savings at Rimba Bank (25, 22) are protected from the 10% death penalty and earn 3% interest daily at 12:00 WIB. The 3-minute stroll + 3-minute work AFK cycle stores rewards (60%) in the AFK Vault for manual claiming.',
         },
       ],
       creator: {
@@ -2703,7 +2869,7 @@ class LocalGameBackend {
         tiktok_url: 'https://www.tiktok.com/@dhityavv',
         saweria_url: 'https://saweria.co/dhityavv',
         repo: 'github.com/Dhityavv/Rimba',
-        version: 'v3.2 — UI, AFK Vault, Bank & Monster Update',
+        version: 'v4.0 — Starter Sword, Live Region Multiplayer & Mobile Optimization',
       },
     };
   }

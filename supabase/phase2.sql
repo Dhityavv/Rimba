@@ -6,6 +6,9 @@ create table if not exists public.player_inventories (
   wood bigint not null default 0 check (wood >= 0),
   stone bigint not null default 0 check (stone >= 0),
   coins bigint not null default 100 check (coins >= 0),
+  starter_sword_id text not null default 'sword_beginner_rimba',
+  hotbar_slot_1 text not null default 'sword_beginner_rimba',
+  sword_bound boolean not null default true,
   updated_at timestamptz not null default now()
 );
 
@@ -16,7 +19,8 @@ security definer
 set search_path = ''
 as $$
 begin
-  insert into public.player_inventories(user_id) values (new.user_id)
+  insert into public.player_inventories(user_id, starter_sword_id, hotbar_slot_1, sword_bound)
+  values (new.user_id, 'sword_beginner_rimba', 'sword_beginner_rimba', true)
   on conflict (user_id) do nothing;
   return new;
 end;
@@ -27,8 +31,8 @@ create trigger initialize_player_inventory
   after insert on public.characters
   for each row execute function public.initialize_player_inventory();
 
-insert into public.player_inventories(user_id)
-select user_id from public.characters
+insert into public.player_inventories(user_id, starter_sword_id, hotbar_slot_1, sword_bound)
+select user_id, 'sword_beginner_rimba', 'sword_beginner_rimba', true from public.characters
 on conflict (user_id) do nothing;
 
 alter table public.player_inventories enable row level security;
@@ -40,8 +44,8 @@ grant select on public.player_inventories to authenticated;
 
 create table if not exists public.player_positions (
   user_id uuid primary key references public.characters(user_id) on delete cascade,
-  tile_x double precision not null check (tile_x between 0 and 37),
-  tile_y double precision not null check (tile_y between 0 and 37),
+  tile_x double precision not null check (tile_x between 0 and 55),
+  tile_y double precision not null check (tile_y between 0 and 55),
   updated_at timestamptz not null default now()
 );
 
@@ -456,3 +460,37 @@ exception when duplicate_object then
   null;
 end;
 $$;
+
+-- Safe atomic test data cleanup & sequence reset to 001 (1).
+-- Verifies p_confirm_env = 'development_reset_to_001' before clearing test characters and resetting citizen_number_seq.
+create or replace function public.reset_development_test_data(p_confirm_env text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if p_confirm_env is distinct from 'development_reset_to_001' then
+    raise exception 'Explicit confirmation required: pass development_reset_to_001';
+  end if;
+
+  perform pg_advisory_xact_lock(hashtextextended('rimba:reset-test-data-lock', 0));
+
+  delete from public.market_listings;
+  delete from public.player_buildings;
+  delete from public.player_harvest_cooldowns;
+  delete from public.player_positions;
+  delete from public.player_inventories;
+  delete from public.characters;
+
+  alter sequence public.citizen_number_seq restart with 1;
+
+  return jsonb_build_object(
+    'status', 'ok',
+    'next_citizen_number', '001',
+    'region_capacity', 25
+  );
+end;
+$$;
+revoke all on function public.reset_development_test_data(text) from public, anon, authenticated;
+
