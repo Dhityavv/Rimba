@@ -26,6 +26,8 @@ import {
   isWalkableTile,
   isWaterTile,
   isWoodWorkAreaTile,
+  isBeachTile,
+  isFarmlandTile,
   localBackend,
   renderChibiCharacterSvg,
   renderStarterSwordSvg,
@@ -81,28 +83,28 @@ type DungeonMonsterConfig = {
 
 // Section 10: Upper Dungeon (6..13, 7..14) spawns Slime ONLY. Lower Dungeon (44..51, 43..50) spawns Goblin ONLY.
 const DUNGEON_MONSTER_SPAWNS: DungeonMonsterConfig[] = [
-  // Upper Dungeon (Slime only)
+  // Upper Mountain Dungeon (Slime only) at (10, 10)
   {
     id: 'slime-1',
     kind: 'slime',
-    homeTx: 8,
+    homeTx: 9,
     homeTy: 12,
     patrolWaypoints: [
-      { x: 8, y: 12 },
-      { x: 10, y: 12 },
-      { x: 9, y: 10 },
+      { x: 9, y: 12 },
+      { x: 12, y: 12 },
+      { x: 10, y: 9 },
     ],
     maxHp: 45,
   },
   {
     id: 'slime-2',
     kind: 'slime',
-    homeTx: 11,
+    homeTx: 13,
     homeTy: 11,
     patrolWaypoints: [
-      { x: 11, y: 11 },
-      { x: 12, y: 9 },
-      { x: 10, y: 9 },
+      { x: 13, y: 11 },
+      { x: 14, y: 8 },
+      { x: 11, y: 8 },
     ],
     maxHp: 45,
   },
@@ -110,48 +112,48 @@ const DUNGEON_MONSTER_SPAWNS: DungeonMonsterConfig[] = [
     id: 'slime-3',
     kind: 'slime',
     homeTx: 8,
-    homeTy: 9,
+    homeTy: 8,
     patrolWaypoints: [
-      { x: 8, y: 9 },
+      { x: 8, y: 8 },
       { x: 7, y: 11 },
-      { x: 9, y: 8 },
+      { x: 10, y: 7 },
     ],
     maxHp: 45,
   },
-  // Lower Dungeon (Goblin only)
+  // Lower Wilds Dungeon (Goblin only) at (61, 61)
   {
     id: 'goblin-1',
     kind: 'goblin',
-    homeTx: 46,
-    homeTy: 47,
+    homeTx: 60,
+    homeTy: 61,
     patrolWaypoints: [
-      { x: 46, y: 47 },
-      { x: 48, y: 47 },
-      { x: 47, y: 45 },
+      { x: 60, y: 61 },
+      { x: 63, y: 61 },
+      { x: 61, y: 58 },
     ],
     maxHp: 75,
   },
   {
     id: 'goblin-2',
     kind: 'goblin',
-    homeTx: 49,
-    homeTy: 46,
+    homeTx: 63,
+    homeTy: 60,
     patrolWaypoints: [
-      { x: 49, y: 46 },
-      { x: 50, y: 48 },
-      { x: 48, y: 49 },
+      { x: 63, y: 60 },
+      { x: 65, y: 63 },
+      { x: 62, y: 64 },
     ],
     maxHp: 75,
   },
   {
     id: 'goblin-3',
     kind: 'goblin',
-    homeTx: 46,
-    homeTy: 49,
+    homeTx: 59,
+    homeTy: 63,
     patrolWaypoints: [
-      { x: 46, y: 49 },
-      { x: 45, y: 46 },
-      { x: 48, y: 48 },
+      { x: 59, y: 63 },
+      { x: 58, y: 59 },
+      { x: 62, y: 62 },
     ],
     maxHp: 75,
   },
@@ -159,35 +161,34 @@ const DUNGEON_MONSTER_SPAWNS: DungeonMonsterConfig[] = [
 
 const AFK_WAYPOINTS: Record<AfkActivityType, Array<{ x: number; y: number }>> = {
   stroll: [
-    { x: 26, y: 29 },
-    { x: 30, y: 29 },
-    { x: 31, y: 26 },
-    { x: 28, y: 25 },
-    { x: 25, y: 27 },
-    { x: 27, y: 31 },
+    { x: 34, y: 37 },
+    { x: 38, y: 37 },
+    { x: 39, y: 34 },
+    { x: 35, y: 33 },
+    { x: 32, y: 35 },
+    { x: 35, y: 39 },
   ],
   wood: [
-    { x: 42, y: 28 },
-    { x: 44, y: 26 },
-    { x: 46, y: 29 },
-    { x: 43, y: 30 },
+    { x: 56, y: 46 },
+    { x: 59, y: 44 },
+    { x: 61, y: 47 },
+    { x: 57, y: 48 },
   ],
   stone: [
-    { x: 36, y: 44 },
-    { x: 39, y: 45 },
-    { x: 38, y: 46 },
-    { x: 35, y: 43 },
+    { x: 49, y: 59 },
+    { x: 52, y: 60 },
+    { x: 50, y: 62 },
+    { x: 47, y: 58 },
   ],
   fish: [
-    { x: 27, y: 15 },
-    { x: 28, y: 15 },
-    { x: 29, y: 15 },
+    { x: 35, y: 18 },
+    { x: 37, y: 18 },
+    { x: 36, y: 17 },
   ],
   dungeon: [
-    { x: 11, y: 12 },
-    { x: 9, y: 12 },
-    { x: 10, y: 10 },
-    { x: 12, y: 11 },
+    { x: 12, y: 12 },
+    { x: 10, y: 12 },
+    { x: 11, y: 10 },
   ],
 };
 
@@ -1087,8 +1088,8 @@ class WorldScene extends Phaser.Scene {
   }
 
   private resolveNearestWalkableTile(tx: number, ty: number): { x: number; y: number } | null {
-    const clampedX = Phaser.Math.Clamp(tx, 1, 54);
-    const clampedY = Phaser.Math.Clamp(ty, 1, 54);
+    const clampedX = Phaser.Math.Clamp(tx, 1, 70);
+    const clampedY = Phaser.Math.Clamp(ty, 1, 70);
     if (!this.isBlockedTile(clampedX, clampedY)) {
       return { x: clampedX, y: clampedY };
     }
@@ -1106,11 +1107,12 @@ class WorldScene extends Phaser.Scene {
     return null;
   }
 
-  private drawPastelWorldMap() {
+    private drawPastelWorldMap() {
     const g = this.graphics;
     const size = GAME_CONFIG.MAP_SIZE;
     const compactMobile = isCompactMobileViewport();
 
+    // Pass 1: Ground Tiles & Isometric Terrain
     for (let x = 0; x < size; x++) {
       for (let y = 0; y < size; y++) {
         const p = this.tileToWorld(x, y);
@@ -1122,35 +1124,50 @@ class WorldScene extends Phaser.Scene {
         const arena = isArenaTile(x, y);
         const woodArea = isWoodWorkAreaTile(x, y);
         const stoneArea = isStoneWorkAreaTile(x, y);
+        const farmland = isFarmlandTile(x, y);
+        const beach = isBeachTile(x, y);
         const variation = (x * 19 + y * 31) % 9;
 
-        let fillColor = variation < 3 ? 0x7bc871 : variation < 6 ? 0x86d17b : 0x70be67;
+        // Base meadow palette: smooth vibrant anime-fantasy grass
+        let fillColor = variation < 3 ? 0x78c767 : variation < 6 ? 0x86d175 : 0x6ebd5b;
 
         if (water) {
-          fillColor = variation % 2 === 0 ? 0x56b4f5 : 0x67c1fa;
+          // Azure water gradient
+          fillColor = variation % 2 === 0 ? 0x38bdf8 : 0x0ea5e9;
+        } else if (beach) {
+          // Warm soft golden sand
+          fillColor = variation % 2 === 0 ? 0xfde68a : 0xfcd34d;
         } else if (central) {
-          const isInnerRing = x >= 25 && x <= 31 && y >= 25 && y <= 31;
-          fillColor = isInnerRing
-            ? variation % 2 === 0
-              ? 0xe4e3ed
-              : 0xdad8e6
-            : variation % 2 === 0
-              ? 0xd2d0de
-              : 0xc8c6d6;
+          // Grand Central Citadel Paved Plaza
+          const isFountainSquare = Math.abs(x - 36) <= 2 && Math.abs(y - 36) <= 2;
+          const isInnerBoulevard = Math.abs(x - 36) <= 6 && Math.abs(y - 36) <= 6;
+          fillColor = isFountainSquare
+            ? (variation % 2 === 0 ? 0xf1f5f9 : 0xe2e8f0)
+            : isInnerBoulevard
+            ? (variation % 2 === 0 ? 0xebe9f5 : 0xe2dfef)
+            : (variation % 2 === 0 ? 0xdad6e7 : 0xd0cce0);
         } else if (road) {
-          fillColor = variation % 2 === 0 ? 0xb7b5c7 : 0xc2c0d1;
+          // Smooth warm grey cobblestone
+          fillColor = variation % 2 === 0 ? 0xc5c3d5 : 0xbcb9cc;
+        } else if (farmland) {
+          // Golden agricultural crop furrows
+          fillColor = variation % 2 === 0 ? 0xf59e0b : 0xd97706;
         } else if (d1) {
-          fillColor = variation % 2 === 0 ? 0x74708a : 0x807c96;
+          // Mountain Dungeon stone
+          fillColor = variation % 2 === 0 ? 0x475569 : 0x334155;
         } else if (d2) {
-          fillColor = variation % 2 === 0 ? 0x7d8578 : 0x899184;
+          // Wilds Dungeon mossy slate
+          fillColor = variation % 2 === 0 ? 0x526b58 : 0x415446;
         } else if (arena) {
-          fillColor = variation % 2 === 0 ? 0xe8d0a7 : 0xdec497;
+          // Colosseum Arena battle sand
+          fillColor = variation % 2 === 0 ? 0xedd5af : 0xe4caa2;
         } else if (woodArea) {
-          fillColor = variation % 2 === 0 ? 0x9ed672 : 0x92cc66;
+          fillColor = variation % 2 === 0 ? 0x93cf67 : 0x85c458;
         } else if (stoneArea) {
-          fillColor = variation % 2 === 0 ? 0xb8b2a6 : 0xc4beb2;
+          fillColor = variation % 2 === 0 ? 0xb5afa3 : 0xc0baa0;
         }
 
+        // Draw smooth isometric diamond
         g.fillStyle(fillColor, 1);
         g.beginPath();
         g.moveTo(p.x, p.y - 16);
@@ -1160,134 +1177,310 @@ class WorldScene extends Phaser.Scene {
         g.closePath();
         g.fillPath();
 
-        if (!compactMobile || central || road || d1 || d2 || arena) {
-          g.lineStyle(1, water ? 0x8cd3ff : central ? 0xbdbbd0 : 0x95db8a, 0.16);
+        // Subtle edge lines for roads and plaza
+        if (!compactMobile || central || road || arena || farmland) {
+          const strokeCol = water ? 0xbae6fd : central ? 0xbdb9cf : road ? 0x94a3b8 : farmland ? 0xb45309 : 0x8ee07e;
+          g.lineStyle(1, strokeCol, road || central ? 0.32 : 0.12);
           g.strokePath();
         }
 
+        // Farmland furrows
+        if (farmland && (x + y) % 2 === 0) {
+          g.lineStyle(1.5, 0xca8a04, 0.45);
+          g.strokeLineShape(new Phaser.Geom.Line(p.x - 16, p.y - 8, p.x + 16, p.y + 8));
+        }
+
+        // Water shoreline foam & waves
         if (water) {
           if (variation === 0 && !compactMobile) {
-            g.lineStyle(1.5, 0xdff2ff, 0.55);
-            g.strokeEllipse(p.x, p.y, 18, 7);
+            g.lineStyle(1.5, 0xe0f2fe, 0.65);
+            g.strokeEllipse(p.x, p.y, 22, 8);
           }
           continue;
         }
 
+        // Beach sand transitions
         const nearWater =
           isWaterTile(x + 1, y) || isWaterTile(x - 1, y) || isWaterTile(x, y + 1) || isWaterTile(x, y - 1);
-        if (nearWater && !road) {
-          g.fillStyle(0xf6e3b4, 0.78);
+        if (nearWater && !road && !central) {
+          g.fillStyle(0xfde68a, 0.65);
           g.fillEllipse(p.x, p.y, 48, 22);
         }
 
+        // Raised Central Citadel Retaining Walls (2.5D visual elevation!)
+        const isCitadelBorder =
+          (x === 26 && y >= 26 && y <= 46) ||
+          (x === 46 && y >= 26 && y <= 46) ||
+          (y === 26 && x >= 26 && x <= 46) ||
+          (y === 46 && x >= 26 && x <= 46);
+        const isStaircaseGate =
+          (x === 36 && (y === 25 || y === 26 || y === 46 || y === 47)) ||
+          (y === 36 && (x === 25 || x === 26 || x === 46 || x === 47));
+
+        if (isCitadelBorder && !isStaircaseGate) {
+          g.fillStyle(0x64748b, 0.95);
+          // 2.5D retaining stone face drop
+          g.fillRect(p.x - 30, p.y + 6, 60, 14);
+          g.fillStyle(0x475569, 1);
+          g.fillRect(p.x - 30, p.y + 16, 60, 4);
+          // Stone coping ledge
+          g.fillStyle(0x94a3b8, 1);
+          g.fillRect(p.x - 32, p.y + 4, 64, 4);
+        }
+
+        // Grand Staircase banisters at the 4 citadel exits
+        if (isStaircaseGate) {
+          g.fillStyle(0xe2e8f0, 1);
+          g.fillRect(p.x - 24, p.y + 2, 48, 4);
+          g.fillRect(p.x - 20, p.y + 7, 40, 4);
+          g.fillRect(p.x - 16, p.y + 12, 32, 4);
+        }
+
+        // Decorative tree placement
         if (isDecorativeTreeTile(x, y)) {
-          // Adaptive density on mobile while preserving obstacle collision map
           if (compactMobile && (x + y) % 2 === 1) {
             this.obstacles.add(this.key(x, y));
           } else {
-            this.drawPastelTree(x, y, p.x, p.y, variation);
+            const isPalm = beach;
+            this.drawPastelTree(x, y, p.x, p.y, isPalm ? 99 : variation);
           }
         }
       }
     }
 
-    this.drawCentralFountain(28, 28);
-    this.drawLighthouse(6, 37);
-    this.drawFishingPier(28, 14);
+    // Pass 2: Grand Centerpiece Landmarks
+    this.drawCentralFountain(36, 36);
+    this.drawLighthouse(44, 9); // Great Lake island lighthouse
+    this.drawLighthouse(6, 62);  // Ocean beach lighthouse
+    this.drawFishingPier(36, 17); // Great Lake Pier
+    this.drawOceanDock(10, 58);   // Ocean Beach Pier & Sailboat
+    this.drawFarmlandDecorations(60, 38); // Windmill & Barn
   }
 
   private ensureTreeTextures() {
     if (this.textures.exists('rimba_tree_pine')) return;
 
-    // Pre-bake Pine Tree texture (44x68) for batch rendering
+    // 1. Pine Tree (52x84) - Smooth multi-tier illustrated pine
     const gPine = this.make.graphics({ x: 0, y: 0 });
-    gPine.fillStyle(0x2d5432, 0.24);
-    gPine.fillEllipse(22, 60, 36, 14);
-    gPine.fillStyle(0x855c42, 1);
-    gPine.fillRect(19, 44, 6, 17);
-    gPine.fillStyle(0x3f8f54, 1);
-    gPine.fillTriangle(3, 50, 22, 18, 41, 50);
-    gPine.fillStyle(0x4ea662, 1);
-    gPine.fillTriangle(6, 40, 22, 10, 38, 40);
-    gPine.fillStyle(0x68bf76, 1);
-    gPine.fillTriangle(10, 30, 22, 4, 34, 30);
-    gPine.generateTexture('rimba_tree_pine', 44, 68);
+    gPine.fillStyle(0x0f172a, 0.28);
+    gPine.fillEllipse(26, 76, 44, 16);
+    gPine.fillStyle(0x713f12, 1);
+    gPine.fillRect(23, 56, 6, 22);
+    // 4 tiered lush cones with highlights
+    gPine.fillStyle(0x166534, 1);
+    gPine.fillTriangle(4, 62, 26, 26, 48, 62);
+    gPine.fillStyle(0x15803d, 1);
+    gPine.fillTriangle(8, 48, 26, 16, 44, 48);
+    gPine.fillStyle(0x22c55e, 1);
+    gPine.fillTriangle(12, 36, 26, 8, 40, 36);
+    gPine.fillStyle(0x86efac, 0.7);
+    gPine.fillTriangle(16, 26, 26, 6, 34, 26);
+    gPine.generateTexture('rimba_tree_pine', 52, 84);
     gPine.destroy();
 
-    // Pre-bake Round Tree texture (44x68) for batch rendering
+    // 2. Round Oak Tree (54x80) - Soft fluffy anime canopy layers
     const gRound = this.make.graphics({ x: 0, y: 0 });
-    gRound.fillStyle(0x2d5432, 0.24);
-    gRound.fillEllipse(22, 60, 36, 14);
-    gRound.fillStyle(0x855c42, 1);
-    gRound.fillRect(19, 44, 6, 17);
-    gRound.fillStyle(0x499c5b, 1);
-    gRound.fillCircle(15, 34, 12);
-    gRound.fillCircle(29, 34, 12);
-    gRound.fillStyle(0x62b870, 1);
-    gRound.fillCircle(22, 26, 14);
-    gRound.fillStyle(0x82d48b, 0.85);
-    gRound.fillCircle(19, 23, 9);
-    gRound.generateTexture('rimba_tree_round', 44, 68);
+    gRound.fillStyle(0x0f172a, 0.26);
+    gRound.fillEllipse(27, 72, 46, 16);
+    gRound.fillStyle(0x78350f, 1);
+    gRound.fillRect(24, 52, 6, 22);
+    // Overlapping cloud-like canopy with soft rim lighting
+    gRound.fillStyle(0x14532d, 1);
+    gRound.fillCircle(18, 42, 14);
+    gRound.fillCircle(36, 42, 14);
+    gRound.fillStyle(0x16a34a, 1);
+    gRound.fillCircle(27, 34, 17);
+    gRound.fillCircle(19, 30, 13);
+    gRound.fillCircle(35, 30, 13);
+    gRound.fillStyle(0x4ade80, 0.85);
+    gRound.fillCircle(25, 24, 11);
+    gRound.fillCircle(32, 24, 9);
+    gRound.generateTexture('rimba_tree_round', 54, 80);
     gRound.destroy();
+
+    // 3. Tropical Palm Tree (56x86) - Curved trunk with fanned fronds
+    const gPalm = this.make.graphics({ x: 0, y: 0 });
+    gPalm.fillStyle(0x0f172a, 0.22);
+    gPalm.fillEllipse(28, 78, 42, 14);
+    gPalm.lineStyle(7, 0x92400e, 1);
+    gPalm.beginPath();
+    gPalm.moveTo(28, 76);
+    gPalm.lineTo(34, 46);
+    gPalm.lineTo(30, 24);
+    gPalm.strokePath();
+    // Coconuts
+    gPalm.fillStyle(0x713f12, 1);
+    gPalm.fillCircle(27, 26, 4);
+    gPalm.fillCircle(32, 27, 4);
+    // Fanned lush fronds
+    gPalm.fillStyle(0x15803d, 1);
+    gPalm.fillEllipse(14, 20, 26, 9);
+    gPalm.fillEllipse(44, 22, 26, 9);
+    gPalm.fillEllipse(28, 12, 28, 8);
+    gPalm.fillStyle(0x22c55e, 0.9);
+    gPalm.fillEllipse(18, 16, 20, 6);
+    gPalm.fillEllipse(38, 17, 20, 6);
+    gPalm.generateTexture('rimba_tree_palm', 56, 86);
+    gPalm.destroy();
   }
 
   private drawPastelTree(tx: number, ty: number, x: number, y: number, variant: number) {
     this.obstacles.add(this.key(tx, ty));
     this.ensureTreeTextures();
-    const texKey = variant % 2 === 0 ? 'rimba_tree_pine' : 'rimba_tree_round';
+    const texKey = variant === 99 ? 'rimba_tree_palm' : variant % 2 === 0 ? 'rimba_tree_pine' : 'rimba_tree_round';
     const img = this.add.image(x, y + 4, texKey).setOrigin(0.5, 0.88);
     img.setDepth(y + 12);
-    this.culledProps.push({ obj: img, wx: x, wy: y, pad: 100 });
+    this.culledProps.push({ obj: img, wx: x, wy: y, pad: 110 });
   }
 
   private drawCentralFountain(tx: number, ty: number) {
     this.obstacles.add(this.key(tx, ty));
     const p = this.tileToWorld(tx, ty);
     const g = this.add.graphics();
-    g.fillStyle(0x2a3b4c, 0.2);
-    g.fillEllipse(p.x, p.y + 4, 86, 40);
+
+    // Soft drop shadow
+    g.fillStyle(0x0f172a, 0.32);
+    g.fillEllipse(p.x, p.y + 6, 120, 52);
+
+    // Carved Marble Outer Basin
     g.fillStyle(0xe2e8f0, 1);
-    g.fillEllipse(p.x, p.y, 78, 36);
-    g.fillStyle(0x38bdf8, 1);
-    g.fillEllipse(p.x, p.y - 2, 64, 28);
-    g.fillStyle(0xbae6fd, 0.7);
-    g.fillEllipse(p.x, p.y - 2, 42, 18);
+    g.fillEllipse(p.x, p.y, 110, 46);
+    g.lineStyle(3, 0x94a3b8, 1);
+    g.strokeEllipse(p.x, p.y, 110, 46);
+
+    // Stepped Inner Basin
+    g.fillStyle(0xcfd8dc, 1);
+    g.fillEllipse(p.x, p.y - 2, 94, 38);
+
+    // Deep Crystal Water
     g.fillStyle(0x0284c7, 1);
-    g.fillTriangle(p.x - 9, p.y - 8, p.x, p.y - 48, p.x + 9, p.y - 8);
-    g.fillStyle(0x7dd3fc, 0.9);
-    g.fillTriangle(p.x - 4, p.y - 12, p.x, p.y - 44, p.x + 4, p.y - 12);
-    g.setDepth(p.y + 18);
-    this.culledProps.push({ obj: g, wx: p.x, wy: p.y, pad: 140 });
+    g.fillEllipse(p.x, p.y - 4, 84, 32);
+    g.fillStyle(0x38bdf8, 0.85);
+    g.fillEllipse(p.x, p.y - 4, 60, 22);
+
+    // Central Stone Pedestal
+    g.fillStyle(0xf1f5f9, 1);
+    g.fillEllipse(p.x, p.y - 6, 36, 16);
+    g.fillStyle(0x64748b, 1);
+    g.fillRect(p.x - 7, p.y - 24, 14, 18);
+
+    // Floating Glowing Mana Crystal Obelisk
+    g.fillStyle(0x0284c7, 1);
+    g.fillTriangle(p.x - 12, p.y - 22, p.x, p.y - 62, p.x + 12, p.y - 22);
+    g.fillStyle(0x38bdf8, 0.95);
+    g.fillTriangle(p.x - 8, p.y - 26, p.x, p.y - 58, p.x + 8, p.y - 26);
+    g.fillStyle(0xe0f2fe, 0.9);
+    g.fillTriangle(p.x - 4, p.y - 30, p.x, p.y - 54, p.x + 4, p.y - 30);
+
+    // Water Spray Ripples
+    g.lineStyle(2, 0xe0f2fe, 0.7);
+    g.strokeEllipse(p.x, p.y - 6, 50, 18);
+
+    g.setDepth(p.y + 20);
+    this.culledProps.push({ obj: g, wx: p.x, wy: p.y, pad: 160 });
   }
 
   private drawLighthouse(tx: number, ty: number) {
     this.obstacles.add(this.key(tx, ty));
     const p = this.tileToWorld(tx, ty);
     const g = this.add.graphics();
-    g.fillStyle(0x1e293b, 0.22);
-    g.fillEllipse(p.x, p.y + 4, 48, 20);
+    g.fillStyle(0x0f172a, 0.28);
+    g.fillEllipse(p.x, p.y + 4, 52, 22);
+    // Base & Tower
     g.fillStyle(0xf8fafc, 1);
-    g.fillRect(p.x - 10, p.y - 54, 20, 54);
+    g.fillRect(p.x - 12, p.y - 64, 24, 64);
+    // Red candy stripes
     g.fillStyle(0xef4444, 1);
-    g.fillRect(p.x - 10, p.y - 42, 20, 12);
-    g.fillRect(p.x - 10, p.y - 20, 20, 12);
+    g.fillRect(p.x - 12, p.y - 50, 24, 14);
+    g.fillRect(p.x - 12, p.y - 24, 24, 14);
+    // Lantern Room & Glowing Beacon
     g.fillStyle(0xfef08a, 1);
-    g.fillRect(p.x - 8, p.y - 64, 16, 10);
+    g.fillRect(p.x - 9, p.y - 76, 18, 12);
     g.fillStyle(0xdc2626, 1);
-    g.fillTriangle(p.x - 13, p.y - 64, p.x, p.y - 78, p.x + 13, p.y - 64);
-    g.setDepth(p.y + 25);
-    this.culledProps.push({ obj: g, wx: p.x, wy: p.y, pad: 150 });
+    g.fillTriangle(p.x - 15, p.y - 76, p.x, p.y - 94, p.x + 15, p.y - 76);
+    g.setDepth(p.y + 28);
+    this.culledProps.push({ obj: g, wx: p.x, wy: p.y, pad: 160 });
   }
 
   private drawFishingPier(tx: number, ty: number) {
     const p = this.tileToWorld(tx, ty);
     const g = this.add.graphics();
-    g.fillStyle(0x8c5a3c, 1);
-    g.fillRect(p.x - 36, p.y - 12, 72, 22);
-    g.lineStyle(2, 0x5c3824, 0.8);
-    g.strokeRect(p.x - 36, p.y - 12, 72, 22);
+    g.fillStyle(0x0f172a, 0.24);
+    g.fillEllipse(p.x, p.y + 8, 80, 26);
+    // Wooden deck planks
+    g.fillStyle(0x854d0e, 1);
+    g.fillRect(p.x - 42, p.y - 12, 84, 24);
+    g.lineStyle(2, 0x582e07, 0.9);
+    g.strokeRect(p.x - 42, p.y - 12, 84, 24);
+    // Mooring posts
+    g.fillStyle(0x713f12, 1);
+    g.fillRect(p.x - 38, p.y - 18, 5, 8);
+    g.fillRect(p.x + 33, p.y - 18, 5, 8);
     g.setDepth(p.y - 2);
-    this.culledProps.push({ obj: g, wx: p.x, wy: p.y, pad: 130 });
+    this.culledProps.push({ obj: g, wx: p.x, wy: p.y, pad: 140 });
+  }
+
+  private drawOceanDock(tx: number, ty: number) {
+    const p = this.tileToWorld(tx, ty);
+    const g = this.add.graphics();
+    // Boardwalk Pier
+    g.fillStyle(0x78350f, 1);
+    g.fillRect(p.x - 36, p.y - 14, 72, 28);
+    g.lineStyle(2, 0x451a03, 1);
+    g.strokeRect(p.x - 36, p.y - 14, 72, 28);
+    // Moored Sailboat
+    const bx = p.x - 52;
+    const by = p.y - 4;
+    g.fillStyle(0x92400e, 1);
+    g.fillPoints(
+      makePoints([
+        [bx - 20, by],
+        [bx + 20, by],
+        [bx + 14, by + 12],
+        [bx - 14, by + 12],
+      ]),
+      true
+    );
+    // Mast & White Sail
+    g.fillStyle(0x451a03, 1);
+    g.fillRect(bx - 1, by - 36, 3, 36);
+    g.fillStyle(0xf8fafc, 1);
+    g.fillTriangle(bx + 2, by - 34, bx + 18, by - 12, bx + 2, by - 12);
+    g.setDepth(p.y + 10);
+    this.culledProps.push({ obj: g, wx: p.x, wy: p.y, pad: 150 });
+  }
+
+  private drawFarmlandDecorations(tx: number, ty: number) {
+    const p = this.tileToWorld(tx, ty);
+    const g = this.add.graphics();
+    // Windmill Base Tower
+    g.fillStyle(0x0f172a, 0.28);
+    g.fillEllipse(p.x, p.y + 6, 64, 24);
+    g.fillStyle(0xf1f5f9, 1);
+    g.fillPoints(
+      makePoints([
+        [p.x - 16, p.y + 4],
+        [p.x + 16, p.y + 4],
+        [p.x + 11, p.y - 54],
+        [p.x - 11, p.y - 54],
+      ]),
+      true
+    );
+    // Timber cap
+    g.fillStyle(0x78350f, 1);
+    g.fillTriangle(p.x - 15, p.y - 54, p.x, p.y - 74, p.x + 15, p.y - 54);
+    // Windmill Sails (Cross)
+    g.lineStyle(3, 0x451a03, 1);
+    g.strokeLineShape(new Phaser.Geom.Line(p.x - 28, p.y - 54, p.x + 28, p.y - 54));
+    g.strokeLineShape(new Phaser.Geom.Line(p.x, p.y - 82, p.x, p.y - 26));
+    // White Canvas Blades
+    g.fillStyle(0xf8fafc, 0.9);
+    g.fillRect(p.x + 3, p.y - 80, 8, 24);
+    g.fillRect(p.x + 3, p.y - 50, 24, 8);
+    g.fillRect(p.x - 11, p.y - 50, 8, 24);
+    g.fillRect(p.x - 27, p.y - 58, 24, 8);
+    g.setDepth(p.y + 24);
+    this.culledProps.push({ obj: g, wx: p.x, wy: p.y, pad: 160 });
   }
 
   private drawArchitecturalBuilding(
@@ -1300,102 +1493,176 @@ class WorldScene extends Phaser.Scene {
     this.obstacles.add(this.key(fac.tx, fac.ty));
     const g = this.add.graphics();
 
-    g.fillStyle(0x1e293b, 0.22);
-    g.fillEllipse(p.x, p.y + 7, 88, 34);
+    // Soft drop shadow
+    g.fillStyle(0x0f172a, 0.3);
+    g.fillEllipse(p.x, p.y + 8, accentType === 'arena' ? 140 : 96, accentType === 'arena' ? 56 : 38);
 
     if (accentType === 'portal') {
-      g.fillStyle(0x64748b, 1);
-      g.fillCircle(p.x - 20, p.y - 14, 18);
-      g.fillCircle(p.x + 20, p.y - 14, 18);
-      g.fillCircle(p.x, p.y - 28, 22);
-      g.fillStyle(0x3b0764, 1);
-      g.fillEllipse(p.x, p.y - 14, 24, 34);
-      g.fillStyle(0xa855f7, 0.88);
-      g.fillEllipse(p.x, p.y - 14, 16, 26);
+      // Dark Mountain Gate & Swirling Purple Void (Far Top-Left)
+      g.fillStyle(0x1e293b, 1);
+      g.fillPoints(
+        makePoints([
+          [p.x - 38, p.y + 6],
+          [p.x - 48, p.y - 48],
+          [p.x - 20, p.y - 72],
+          [p.x + 20, p.y - 72],
+          [p.x + 48, p.y - 48],
+          [p.x + 38, p.y + 6],
+        ]),
+        true
+      );
+      // Dark crag rock details
+      g.fillStyle(0x334155, 1);
+      g.fillPoints(
+        makePoints([
+          [p.x - 32, p.y + 2],
+          [p.x - 38, p.y - 40],
+          [p.x, p.y - 62],
+          [p.x + 38, p.y - 40],
+          [p.x + 32, p.y + 2],
+        ]),
+        true
+      );
+      // Glowing Runic Arch
+      g.lineStyle(4, 0x9333ea, 1);
+      g.strokeEllipse(p.x, p.y - 18, 36, 48);
+      // Swirling Purple Mana Energy
+      g.fillStyle(0x581c87, 1);
+      g.fillEllipse(p.x, p.y - 18, 30, 42);
+      g.fillStyle(0xc084fc, 0.88);
+      g.fillEllipse(p.x, p.y - 18, 18, 28);
+      g.fillStyle(0xf3e8ff, 0.95);
+      g.fillCircle(p.x, p.y - 18, 5);
     } else if (accentType === 'arena') {
-      g.lineStyle(7, 0xd6d3d1, 1);
-      g.strokeEllipse(p.x, p.y - 10, 84, 42);
-      g.fillStyle(0xef4444, 1);
-      g.fillRect(p.x - 38, p.y - 28, 6, 16);
-      g.fillRect(p.x + 32, p.y - 28, 6, 16);
-      g.fillRect(p.x - 3, p.y - 35, 6, 16);
+      // Grand Colosseum (Bigger, Tiered Amphitheater in Top-Right)
+      // Tier 1 Outer Stone Wall
+      g.fillStyle(0xd6d3d1, 1);
+      g.fillEllipse(p.x, p.y - 10, 136, 68);
+      g.lineStyle(5, 0xa8a29e, 1);
+      g.strokeEllipse(p.x, p.y - 10, 136, 68);
+      // Tier 2 Middle Spectator Bench
+      g.fillStyle(0x78716c, 1);
+      g.fillEllipse(p.x, p.y - 10, 110, 52);
+      // Arena Sand Floor
+      g.fillStyle(0xecd3ab, 1);
+      g.fillEllipse(p.x, p.y - 10, 84, 38);
+      // Grand Entrance Arch
+      g.fillStyle(0x1c1917, 1);
+      g.fillRect(p.x - 10, p.y + 12, 20, 14);
+      // 4 Fluttering Red Battle Banners
+      const flagCoords = [[p.x - 52, p.y - 28], [p.x + 52, p.y - 28], [p.x - 24, p.y - 48], [p.x + 24, p.y - 48]];
+      for (const [fx, fy] of flagCoords) {
+        g.fillStyle(0x44403c, 1);
+        g.fillRect(fx - 1, fy - 20, 3, 22);
+        g.fillStyle(0xdc2626, 1);
+        g.fillTriangle(fx + 2, fy - 20, fx + 16, fy - 14, fx + 2, fy - 8);
+      }
     } else {
+      // Smooth Architectural Manor & Facility Buildings
+      // Left Wall
       g.fillStyle(wallColor, 1);
       g.fillPoints(
         makePoints([
-          [p.x - 32, p.y - 8],
-          [p.x, p.y + 10],
+          [p.x - 34, p.y - 6],
+          [p.x, p.y + 12],
           [p.x, p.y - 22],
-          [p.x - 32, p.y - 36],
+          [p.x - 34, p.y - 40],
         ]),
         true
       );
-      g.fillStyle(Phaser.Display.Color.ValueToColor(wallColor).darken(8).color, 1);
+      // Right Wall (shaded)
+      g.fillStyle(Phaser.Display.Color.ValueToColor(wallColor).darken(10).color, 1);
       g.fillPoints(
         makePoints([
-          [p.x, p.y + 10],
-          [p.x + 32, p.y - 8],
-          [p.x + 32, p.y - 36],
+          [p.x, p.y + 12],
+          [p.x + 34, p.y - 6],
+          [p.x + 34, p.y - 40],
           [p.x, p.y - 22],
         ]),
         true
       );
-
+      // Gabled Roof
       g.fillStyle(roofColor, 1);
       g.fillPoints(
         makePoints([
-          [p.x - 36, p.y - 34],
-          [p.x, p.y - 54],
-          [p.x + 36, p.y - 34],
+          [p.x - 38, p.y - 38],
+          [p.x, p.y - 60],
+          [p.x + 38, p.y - 38],
           [p.x, p.y - 18],
         ]),
         true
       );
-
+      // Front Door
       g.fillStyle(0x5c4033, 1);
-      g.fillRect(p.x - 5, p.y - 8, 10, 14);
+      g.fillRect(p.x - 6, p.y - 6, 12, 16);
 
+      // Distinctive Landmarks
       if (accentType === 'clock') {
+        // Balai Kota: Grand Clock Tower & Gables
         g.fillStyle(wallColor, 1);
-        g.fillRect(p.x - 10, p.y - 68, 20, 24);
+        g.fillRect(p.x - 12, p.y - 74, 24, 26);
         g.fillStyle(roofColor, 1);
-        g.fillTriangle(p.x - 14, p.y - 68, p.x, p.y - 88, p.x + 14, p.y - 68);
+        g.fillTriangle(p.x - 16, p.y - 74, p.x, p.y - 98, p.x + 16, p.y - 74);
         g.fillStyle(0xfef08a, 1);
-        g.fillCircle(p.x, p.y - 56, 5);
+        g.fillCircle(p.x, p.y - 62, 6);
+        g.fillStyle(0x1e3a8a, 1);
+        g.fillCircle(p.x, p.y - 62, 4);
       } else if (accentType === 'bank') {
-        // Marble columns & gold coin crest for Bank Rimba
+        // Bank Rimba: Classical Marble Columns & Gold Coin Crest
         g.fillStyle(0xfef3c7, 1);
-        g.fillRect(p.x - 18, p.y - 24, 4, 22);
-        g.fillRect(p.x + 14, p.y - 24, 4, 22);
+        g.fillRect(p.x - 22, p.y - 24, 5, 24);
+        g.fillRect(p.x - 8, p.y - 24, 5, 24);
+        g.fillRect(p.x + 4, p.y - 24, 5, 24);
+        g.fillRect(p.x + 18, p.y - 24, 5, 24);
         g.fillStyle(0xf59e0b, 1);
-        g.fillCircle(p.x, p.y - 44, 7);
+        g.fillCircle(p.x, p.y - 48, 8);
         g.fillStyle(0xfef08a, 1);
-        g.fillCircle(p.x, p.y - 44, 4);
+        g.fillCircle(p.x, p.y - 48, 5);
       } else if (accentType === 'cross') {
+        // Hospital: Clean Red Medical Cross on white circular shield
+        g.fillStyle(0xffffff, 1);
+        g.fillCircle(p.x, p.y - 40, 11);
         g.fillStyle(0xef4444, 1);
-        g.fillRect(p.x - 3, p.y - 43, 6, 16);
-        g.fillRect(p.x - 8, p.y - 38, 16, 6);
+        g.fillRect(p.x - 3, p.y - 48, 6, 16);
+        g.fillRect(p.x - 8, p.y - 43, 16, 6);
       } else if (accentType === 'spire') {
-        g.fillStyle(0x6d28d9, 1);
-        g.fillTriangle(p.x - 12, p.y - 50, p.x, p.y - 86, p.x + 12, p.y - 50);
+        // Academy: Arcane violet spire with celestial astrolabe sphere
+        g.fillStyle(0x7c3aed, 1);
+        g.fillTriangle(p.x - 14, p.y - 52, p.x, p.y - 94, p.x + 14, p.y - 52);
         g.fillStyle(0xfde047, 1);
-        g.fillCircle(p.x, p.y - 88, 4);
+        g.fillCircle(p.x, p.y - 96, 5);
       } else if (accentType === 'awning') {
-        g.fillStyle(0xef4444, 1);
-        g.fillRect(p.x - 24, p.y - 14, 16, 6);
-        g.fillStyle(0x3b82f6, 1);
-        g.fillRect(p.x + 8, p.y - 14, 16, 6);
+        // Market / Boutique: Striped Canvas Awnings & Display Stalls
+        const colorA = fac.id === 'pakaian' ? 0xf472b6 : 0xef4444;
+        const colorB = fac.id === 'pakaian' ? 0xffffff : 0x3b82f6;
+        g.fillStyle(colorA, 1);
+        g.fillRect(p.x - 26, p.y - 12, 14, 8);
+        g.fillStyle(colorB, 1);
+        g.fillRect(p.x - 12, p.y - 12, 14, 8);
+        g.fillStyle(colorA, 1);
+        g.fillRect(p.x + 2, p.y - 12, 14, 8);
+        g.fillStyle(colorB, 1);
+        g.fillRect(p.x + 16, p.y - 12, 14, 8);
+      } else if (accentType === 'inn') {
+        // Tavern / Inn: Terracotta roof tiles & chimney
+        g.fillStyle(0x78716c, 1);
+        g.fillRect(p.x + 16, p.y - 66, 8, 20);
+        // Hanging wooden sign
+        g.fillStyle(0xb45309, 1);
+        g.fillRect(p.x - 22, p.y - 16, 12, 10);
       } else if (accentType === 'dome') {
-        g.fillStyle(0x2dd4bf, 1);
-        g.fillCircle(p.x, p.y - 54, 13);
+        // House of Worship: Luminous turquoise dome
+        g.fillStyle(0x0d9488, 1);
+        g.fillCircle(p.x, p.y - 56, 15);
       }
     }
 
     g.setDepth(p.y + 24);
-    this.culledProps.push({ obj: g, wx: p.x, wy: p.y, pad: 170 });
+    this.culledProps.push({ obj: g, wx: p.x, wy: p.y, pad: 180 });
 
+    // Clean Facility Text Label
     const textObj = this.add
-      .text(p.x, p.y + 20, currentLang === 'en' ? fac.name_en : fac.name_id, {
+      .text(p.x, p.y + 22, currentLang === 'en' ? fac.name_en : fac.name_id, {
         fontFamily: 'Plus Jakarta Sans, Arial',
         fontSize: '10px',
         fontStyle: 'bold',
@@ -1406,28 +1673,28 @@ class WorldScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setDepth(p.y + 90);
 
-    this.culledProps.push({ obj: textObj, wx: p.x, wy: p.y, pad: 170 });
+    this.culledProps.push({ obj: textObj, wx: p.x, wy: p.y, pad: 180 });
     this.facilityLabels.push({ textObj, name_id: fac.name_id, name_en: fac.name_en });
   }
 
   private drawWorkNodesAndLandmarks() {
     for (const fac of WORLD_FACILITIES) {
-      if (fac.id === 'balaikota') this.drawArchitecturalBuilding(fac, 0x3b6cb7, 0xf5ead4, 'clock');
+      if (fac.id === 'balaikota') this.drawArchitecturalBuilding(fac, 0x1d4ed8, 0xfef3c7, 'clock');
       else if (fac.id === 'bank') this.drawArchitecturalBuilding(fac, 0xb45309, 0xfef3c7, 'bank');
-      else if (fac.id === 'rumahsakit') this.drawArchitecturalBuilding(fac, 0x4b89c8, 0xf8fafc, 'cross');
-      else if (fac.id === 'academy') this.drawArchitecturalBuilding(fac, 0x7e57c2, 0xede9fe, 'spire');
+      else if (fac.id === 'rumahsakit') this.drawArchitecturalBuilding(fac, 0x3b82f6, 0xf8fafc, 'cross');
+      else if (fac.id === 'academy') this.drawArchitecturalBuilding(fac, 0x7c3aed, 0xede9fe, 'spire');
       else if (fac.id === 'pasar') this.drawArchitecturalBuilding(fac, 0xd97348, 0xfef3c7, 'awning');
-      else if (fac.id === 'pakaian') this.drawArchitecturalBuilding(fac, 0xc4628a, 0xfce7f3, 'awning');
-      else if (fac.id === 'ibadah') this.drawArchitecturalBuilding(fac, 0x389e98, 0xf0fdfa, 'dome');
-      else if (fac.id === 'kuliner') this.drawArchitecturalBuilding(fac, 0xd48742, 0xffedd5, 'inn');
-      else if (fac.id === 'penginapan') this.drawArchitecturalBuilding(fac, 0x9c5a3c, 0xfde68a, 'inn');
-      else if (fac.id === 'dungeon1' || fac.id === 'dungeon2') this.drawArchitecturalBuilding(fac, 0x581c87, 0x475569, 'portal');
+      else if (fac.id === 'pakaian') this.drawArchitecturalBuilding(fac, 0xdb2777, 0xfce7f3, 'awning');
+      else if (fac.id === 'ibadah') this.drawArchitecturalBuilding(fac, 0x0f766e, 0xf0fdfa, 'dome');
+      else if (fac.id === 'kuliner') this.drawArchitecturalBuilding(fac, 0xc2410c, 0xffedd5, 'inn');
+      else if (fac.id === 'penginapan') this.drawArchitecturalBuilding(fac, 0x9a3412, 0xfef3c7, 'inn');
+      else if (fac.id === 'dungeon1' || fac.id === 'dungeon2') this.drawArchitecturalBuilding(fac, 0x581c87, 0x334155, 'portal');
       else if (fac.id === 'arena') this.drawArchitecturalBuilding(fac, 0xb91c1c, 0xe7e5e4, 'arena');
       else {
         const p = this.tileToWorld(fac.tx, fac.ty);
         const txt = this.add
           .text(p.x, p.y - 45, currentLang === 'en' ? fac.name_en : fac.name_id, {
-            fontFamily: 'Georgia',
+            fontFamily: 'Plus Jakarta Sans, Arial',
             fontSize: '11px',
             fontStyle: 'bold',
             color: '#fef9c3',
@@ -2022,8 +2289,8 @@ class WorldScene extends Phaser.Scene {
 
     const floatTile = this.worldToTileFloat(this.worldPos.x, this.worldPos.y);
     ownTilePosition = {
-      x: Number(Phaser.Math.Clamp(floatTile.x, 1, 54).toFixed(2)),
-      y: Number(Phaser.Math.Clamp(floatTile.y, 1, 54).toFixed(2)),
+      x: Number(Phaser.Math.Clamp(floatTile.x, 1, 70).toFixed(2)),
+      y: Number(Phaser.Math.Clamp(floatTile.y, 1, 70).toFixed(2)),
     };
 
     const camView = this.cameras.main.worldView;
@@ -2296,8 +2563,8 @@ class WorldScene extends Phaser.Scene {
   }
 
   setPosition(tileX: number, tileY: number) {
-    const clampedX = Phaser.Math.Clamp(tileX, 1, 54);
-    const clampedY = Phaser.Math.Clamp(tileY, 1, 54);
+    const clampedX = Phaser.Math.Clamp(tileX, 1, 70);
+    const clampedY = Phaser.Math.Clamp(tileY, 1, 70);
     ownTilePosition = { x: clampedX, y: clampedY };
     const p = this.tileToWorld(clampedX, clampedY);
     this.worldPos.set(p.x, p.y);

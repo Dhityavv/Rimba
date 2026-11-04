@@ -195,7 +195,7 @@ function getRegionPlayers(
       });
     } else {
       // Offline registered character -> PERSIST ON MAP IN AFK MODE!
-      const pos = state.positionsByUserId[c.user_id] ?? { tx: 28, ty: 30, dir: 'S', updatedAt: now };
+      const pos = state.positionsByUserId[c.user_id] ?? { tx: 36, ty: 38, dir: 'S', updatedAt: now };
       players.push({
         userId: c.user_id,
         sessionId: '',
@@ -385,7 +385,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         ok: true,
         character: existing,
-        position: state.positionsByUserId[userId] ?? { tx: 28, ty: 30, dir: 'S', updatedAt: now },
+        position: state.positionsByUserId[userId] ?? { tx: 36, ty: 38, dir: 'S', updatedAt: now },
         regionSummary: getRegionSummary(state, existing.home_region),
       });
     }
@@ -440,7 +440,7 @@ export async function POST(req: NextRequest) {
 
     state.citizenSeq = nextCitizenNumber;
     state.charactersByUserId[userId] = created;
-    state.positionsByUserId[userId] = { tx: 28, ty: 30, dir: 'S', updatedAt: now };
+    state.positionsByUserId[userId] = { tx: 36, ty: 38, dir: 'S', updatedAt: now };
     if (sessionId) {
       state.activeSessionByUserId[userId] = { sessionId, updatedAt: now };
     }
@@ -561,8 +561,8 @@ export async function POST(req: NextRequest) {
     }
 
     const effectiveRegion = char?.home_region || String(body.region || 'Wilayah 1');
-    const tx = Math.max(1, Math.min(54, Number(body.tx ?? 28)));
-    const ty = Math.max(1, Math.min(54, Number(body.ty ?? 30)));
+    const tx = Math.max(1, Math.min(70, Number(body.tx ?? 28)));
+    const ty = Math.max(1, Math.min(70, Number(body.ty ?? 30)));
     const dir = String(body.dir || 'S');
 
     state.positionsByUserId[userId] = { tx, ty, dir, updatedAt: now };

@@ -647,8 +647,8 @@ export function getHatColor(hatId?: string): string | null {
 }
 
 export const GAME_CONFIG = {
-  MAP_SIZE: 56,
-  CENTRAL_SPAWN: { x: 28, y: 30 },
+  MAP_SIZE: 72,
+  CENTRAL_SPAWN: { x: 36, y: 38 },
   REGION_CAPACITY: 20,
   AFK_EFFICIENCY_RATE: 0.60, // Section 8: AFK rewards strictly grant 60% of normal active yield
   AFK_MAX_MINUTES: 480, // 8 hours max offline calculation
@@ -754,20 +754,20 @@ function ensureCleanResetV6(): void {
 }
 
 export const DEFAULT_WORK_NODES: WorkNode[] = [
-  // Dedicated Logging Camp (Area Kerja Kayu) — East (44, 28)
-  { id: 'work-wood-1', node_type: 'wood', name_id: 'Pohon Ek Area Kerja #1', name_en: 'Work Camp Oak Tree #1', tile_x: 42, tile_y: 26, remaining: 90, max_stock: 90, yield_amount: 3 },
-  { id: 'work-wood-2', node_type: 'wood', name_id: 'Pohon Ek Area Kerja #2', name_en: 'Work Camp Oak Tree #2', tile_x: 46, tile_y: 26, remaining: 90, max_stock: 90, yield_amount: 3 },
-  { id: 'work-wood-3', node_type: 'wood', name_id: 'Pohon Pinus Area Kerja #3', name_en: 'Work Camp Pine Tree #3', tile_x: 43, tile_y: 30, remaining: 90, max_stock: 90, yield_amount: 3 },
-  { id: 'work-wood-4', node_type: 'wood', name_id: 'Pohon Pinus Area Kerja #4', name_en: 'Work Camp Pine Tree #4', tile_x: 47, tile_y: 29, remaining: 90, max_stock: 90, yield_amount: 3 },
-  // Dedicated Stone Quarry (Area Kerja Batu) — South-East (38, 45)
-  { id: 'work-stone-1', node_type: 'stone', name_id: 'Batu Granit Tambang #1', name_en: 'Quarry Granite Deposit #1', tile_x: 36, tile_y: 43, remaining: 75, max_stock: 75, yield_amount: 2 },
-  { id: 'work-stone-2', node_type: 'stone', name_id: 'Batu Granit Tambang #2', name_en: 'Quarry Granite Deposit #2', tile_x: 40, tile_y: 43, remaining: 75, max_stock: 75, yield_amount: 2 },
-  { id: 'work-stone-3', node_type: 'stone', name_id: 'Batu Mineral Tambang #3', name_en: 'Quarry Mineral Rock #3', tile_x: 37, tile_y: 47, remaining: 75, max_stock: 75, yield_amount: 2 },
-  { id: 'work-stone-4', node_type: 'stone', name_id: 'Batu Mineral Tambang #4', name_en: 'Quarry Mineral Rock #4', tile_x: 41, tile_y: 46, remaining: 75, max_stock: 75, yield_amount: 2 },
-  // Great Fishing Lake Pier (Danau Besar Memancing) — North (28, 14)
-  { id: 'work-fish-1', node_type: 'fish', name_id: 'Dermaga Pancing Barat', name_en: 'West Fishing Pier Spot', tile_x: 26, tile_y: 14, remaining: 100, max_stock: 100, yield_amount: 2 },
-  { id: 'work-fish-2', node_type: 'fish', name_id: 'Dermaga Pancing Utama', name_en: 'Main Fishing Pier Spot', tile_x: 28, tile_y: 13, remaining: 100, max_stock: 100, yield_amount: 2 },
-  { id: 'work-fish-3', node_type: 'fish', name_id: 'Dermaga Pancing Timur', name_en: 'East Fishing Pier Spot', tile_x: 30, tile_y: 14, remaining: 100, max_stock: 100, yield_amount: 2 },
+  // Dedicated Logging Camp (Area Kerja Kayu) — East / Farmland border (58, 46)
+  { id: 'work-wood-1', node_type: 'wood', name_id: 'Pohon Ek Area Kerja #1', name_en: 'Work Camp Oak Tree #1', tile_x: 56, tile_y: 45, remaining: 90, max_stock: 90, yield_amount: 3 },
+  { id: 'work-wood-2', node_type: 'wood', name_id: 'Pohon Ek Area Kerja #2', name_en: 'Work Camp Oak Tree #2', tile_x: 60, tile_y: 45, remaining: 90, max_stock: 90, yield_amount: 3 },
+  { id: 'work-wood-3', node_type: 'wood', name_id: 'Pohon Pinus Area Kerja #3', name_en: 'Work Camp Pine Tree #3', tile_x: 57, tile_y: 48, remaining: 90, max_stock: 90, yield_amount: 3 },
+  { id: 'work-wood-4', node_type: 'wood', name_id: 'Pohon Pinus Area Kerja #4', name_en: 'Work Camp Pine Tree #4', tile_x: 61, tile_y: 47, remaining: 90, max_stock: 90, yield_amount: 3 },
+  // Dedicated Stone Quarry (Area Kerja Batu) — South-East Rocky Cliffs (50, 60)
+  { id: 'work-stone-1', node_type: 'stone', name_id: 'Batu Granit Tambang #1', name_en: 'Quarry Granite Deposit #1', tile_x: 48, tile_y: 58, remaining: 75, max_stock: 75, yield_amount: 2 },
+  { id: 'work-stone-2', node_type: 'stone', name_id: 'Batu Granit Tambang #2', name_en: 'Quarry Granite Deposit #2', tile_x: 52, tile_y: 58, remaining: 75, max_stock: 75, yield_amount: 2 },
+  { id: 'work-stone-3', node_type: 'stone', name_id: 'Batu Mineral Tambang #3', name_en: 'Quarry Mineral Rock #3', tile_x: 49, tile_y: 62, remaining: 75, max_stock: 75, yield_amount: 2 },
+  { id: 'work-stone-4', node_type: 'stone', name_id: 'Batu Mineral Tambang #4', name_en: 'Quarry Mineral Rock #4', tile_x: 53, tile_y: 61, remaining: 75, max_stock: 75, yield_amount: 2 },
+  // Great Fishing Lake Pier (Danau Besar Memancing) — North (36, 18)
+  { id: 'work-fish-1', node_type: 'fish', name_id: 'Dermaga Pancing Barat', name_en: 'West Fishing Pier Spot', tile_x: 34, tile_y: 18, remaining: 100, max_stock: 100, yield_amount: 2 },
+  { id: 'work-fish-2', node_type: 'fish', name_id: 'Dermaga Pancing Utama', name_en: 'Main Fishing Pier Spot', tile_x: 36, tile_y: 17, remaining: 100, max_stock: 100, yield_amount: 2 },
+  { id: 'work-fish-3', node_type: 'fish', name_id: 'Dermaga Pancing Timur', name_en: 'East Fishing Pier Spot', tile_x: 38, tile_y: 18, remaining: 100, max_stock: 100, yield_amount: 2 },
 ];
 
 export type FacilityLandmark = {
@@ -795,21 +795,21 @@ export type FacilityLandmark = {
 };
 
 export const WORLD_FACILITIES: FacilityLandmark[] = [
-  { id: 'balaikota', tx: 28, ty: 22, name_id: 'Balai Kota', name_en: 'Town Hall' },
-  { id: 'bank', tx: 25, ty: 22, name_id: 'Bank Rimba', name_en: 'Rimba Bank' },
-  { id: 'ibadah', tx: 22, ty: 23, name_id: 'Tempat Ibadah', name_en: 'House of Worship' },
-  { id: 'academy', tx: 33, ty: 23, name_id: 'Academy (Coming Soon)', name_en: 'Academy (Coming Soon)', comingSoon: true },
-  { id: 'pakaian', tx: 22, ty: 27, name_id: 'Toko Pakaian', name_en: 'Clothing Boutique' },
-  { id: 'pasar', tx: 23, ty: 32, name_id: 'Pasar Central', name_en: 'Central Market' },
-  { id: 'kuliner', tx: 28, ty: 33, name_id: 'Kedai Makanan & Minuman', name_en: 'Food & Drink Tavern' },
-  { id: 'rumahsakit', tx: 34, ty: 27, name_id: 'Rumah Sakit', name_en: 'Hospital' },
-  { id: 'penginapan', tx: 33, ty: 32, name_id: 'Penginapan & Sewa Kamar', name_en: 'Inn & Room Rental' },
-  { id: 'dungeon1', tx: 9, ty: 10, name_id: 'Dungeon Atas (Slime)', name_en: 'Upper Dungeon (Slime)' },
-  { id: 'dungeon2', tx: 47, ty: 46, name_id: 'Dungeon Bawah (Goblin)', name_en: 'Lower Dungeon (Goblin)' },
-  { id: 'arena', tx: 45, ty: 11, name_id: 'Arena PvP', name_en: 'PvP Arena' },
-  { id: 'work_wood', tx: 44, ty: 28, name_id: 'Area Kerja Kayu', name_en: 'Logging Work Camp' },
-  { id: 'work_stone', tx: 38, ty: 45, name_id: 'Area Kerja Tambang Batu', name_en: 'Stone Quarry Work Area' },
-  { id: 'fishing_lake', tx: 28, ty: 14, name_id: 'Dermaga Danau Memancing', name_en: 'Great Lake Fishing Pier' },
+  { id: 'balaikota', tx: 36, ty: 28, name_id: 'Balai Kota', name_en: 'Town Hall' },
+  { id: 'bank', tx: 30, ty: 31, name_id: 'Bank Rimba', name_en: 'Rimba Bank' },
+  { id: 'ibadah', tx: 30, ty: 35, name_id: 'Tempat Ibadah', name_en: 'House of Worship' },
+  { id: 'academy', tx: 42, ty: 29, name_id: 'Academy (Coming Soon)', name_en: 'Academy (Coming Soon)', comingSoon: true },
+  { id: 'pakaian', tx: 31, ty: 38, name_id: 'Toko Pakaian', name_en: 'Clothing Boutique' },
+  { id: 'pasar', tx: 32, ty: 43, name_id: 'Pasar Central', name_en: 'Central Market' },
+  { id: 'kuliner', tx: 40, ty: 43, name_id: 'Kedai Makanan & Minuman', name_en: 'Food & Drink Tavern' },
+  { id: 'rumahsakit', tx: 42, ty: 33, name_id: 'Rumah Sakit', name_en: 'Hospital' },
+  { id: 'penginapan', tx: 42, ty: 39, name_id: 'Penginapan & Sewa Kamar', name_en: 'Inn & Room Rental' },
+  { id: 'dungeon1', tx: 10, ty: 10, name_id: 'Dungeon Gunung (Slime)', name_en: 'Mountain Dungeon (Slime)' },
+  { id: 'dungeon2', tx: 61, ty: 61, name_id: 'Dungeon Belantara (Goblin)', name_en: 'Wilds Dungeon (Goblin)' },
+  { id: 'arena', tx: 58, ty: 14, name_id: 'Colosseum Arena PvP', name_en: 'PvP Colosseum Arena' },
+  { id: 'work_wood', tx: 58, ty: 46, name_id: 'Area Kerja Kayu & Pertanian', name_en: 'Wood & Farm Work Camp' },
+  { id: 'work_stone', tx: 50, ty: 60, name_id: 'Area Kerja Tambang Batu', name_en: 'Stone Quarry Work Area' },
+  { id: 'fishing_lake', tx: 36, ty: 18, name_id: 'Dermaga Danau Memancing', name_en: 'Great Lake Fishing Pier' },
 ];
 
 // Section 2: All NPCs removed. World is only inhabited by registered KTP player accounts.
@@ -895,24 +895,39 @@ function writeJson<T>(key: string, value: T): void {
   }
 }
 
-// --- MAP TERRAIN & ZONE GEOMETRY (56 x 56) ---
+// --- MAP TERRAIN & ZONE GEOMETRY (72 x 72) ---
 
 export function isGreatLakeTile(x: number, y: number): boolean {
-  if (x >= 26 && x <= 30 && y >= 12 && y <= 15) return false;
-  const dx = (x - 27.5) / 9.5;
-  const dy = (y - 7.5) / 5.2;
+  // Northern Scenic Lake: centered around (38, 11) with rx = 12.5, ry = 6.8
+  // Island with lighthouse at (44, 10)
+  const isIsland = Math.hypot(x - 44, (y - 10) * 1.6) <= 2.8;
+  if (isIsland) return false;
+  // Fishing pier bridge
+  if (x >= 35 && x <= 37 && y >= 16 && y <= 19) return false;
+  const dx = (x - 38) / 12.5;
+  const dy = (y - 11) / 6.8;
   return dx * dx + dy * dy <= 1.0;
 }
 
 export function isSouthwestOceanTile(x: number, y: number): boolean {
-  return x < 13 && y > 41 + Math.sin(x * 0.45) * 1.8;
+  // Southwest sandy coastline & ocean: x < 18 && y > 52 + Math.sin(x * 0.42) * 2.6
+  // Pier at (10, 58)
+  if (x >= 8 && x <= 12 && y >= 56 && y <= 62) return false;
+  return x < 18 && y > 52 + Math.sin(x * 0.42) * 2.6;
 }
 
 export function isRiverTile(x: number, y: number): boolean {
-  if (y < 36 || y > 54) return false;
-  if ((y >= 39 && y <= 41) || (x >= 37 && x <= 39)) return false;
-  const riverCenter = 33 + (y - 36) * 0.75 + Math.sin(y * 0.5) * 1.1;
-  return Math.abs(x - riverCenter) < 1.15;
+  // River flowing from Lake southward across the map, with stone/timber bridges
+  if (
+    (x >= 45 && x <= 49 && y >= 25 && y <= 27) ||
+    (x >= 51 && x <= 55 && y >= 37 && y <= 39) ||
+    (x >= 34 && x <= 38 && y >= 49 && y <= 51)
+  ) {
+    return false; // Walkable bridges!
+  }
+  if (y < 16 || y > 68) return false;
+  const riverX = 46 + (y - 16) * 0.28 + Math.sin(y * 0.35) * 3.2;
+  return Math.abs(x - riverX) < 1.45;
 }
 
 export function isWaterTile(x: number, y: number): boolean {
@@ -920,15 +935,18 @@ export function isWaterTile(x: number, y: number): boolean {
 }
 
 export function isCentralTile(x: number, y: number): boolean {
-  return x >= 21 && x <= 35 && y >= 21 && y <= 35;
+  // Grand Central Citadel
+  return x >= 26 && x <= 46 && y >= 26 && y <= 46;
 }
 
 export function isDungeon1Tile(x: number, y: number): boolean {
-  return x >= 6 && x <= 13 && y >= 7 && y <= 14;
+  // Far Top-Left Mountain Slime Dungeon
+  return x >= 5 && x <= 16 && y >= 5 && y <= 16;
 }
 
 export function isDungeon2Tile(x: number, y: number): boolean {
-  return x >= 44 && x <= 51 && y >= 43 && y <= 50;
+  // Far Bottom-Right Wilds Goblin Dungeon
+  return x >= 56 && x <= 67 && y >= 56 && y <= 67;
 }
 
 export function isDungeonTile(x: number, y: number): boolean {
@@ -936,7 +954,13 @@ export function isDungeonTile(x: number, y: number): boolean {
 }
 
 export function isArenaTile(x: number, y: number): boolean {
-  return Math.hypot(x - 45, y - 11) <= 4.8;
+  // Grand Circular Colosseum in Far Top-Right (bigger!)
+  return Math.hypot(x - 58, y - 14) <= 7.2;
+}
+
+export function isFarmlandTile(x: number, y: number): boolean {
+  // Farmland & Windmill in East
+  return x >= 51 && x <= 67 && y >= 32 && y <= 47 && !isArenaTile(x, y);
 }
 
 export function isPvpZoneTile(x: number, y: number): boolean {
@@ -945,37 +969,56 @@ export function isPvpZoneTile(x: number, y: number): boolean {
 }
 
 export function isWoodWorkAreaTile(x: number, y: number): boolean {
-  return x >= 40 && x <= 49 && y >= 24 && y <= 32;
+  return x >= 54 && x <= 63 && y >= 43 && y <= 50;
 }
 
 export function isStoneWorkAreaTile(x: number, y: number): boolean {
-  return x >= 34 && x <= 43 && y >= 41 && y <= 49;
+  return x >= 46 && x <= 55 && y >= 56 && y <= 64;
+}
+
+export function isBeachTile(x: number, y: number): boolean {
+  if (isWaterTile(x, y)) return false;
+  return x <= 22 && y >= 48;
 }
 
 export function isRoadTile(x: number, y: number): boolean {
-  if (Math.abs(x - 28) <= 1 && y >= 14 && y <= 21) return true;
-  if (Math.abs(y - 28) <= 1 && x >= 35 && x <= 45) return true;
-  if (Math.abs(x - 28) <= 1 && y >= 35 && y <= 41) return true;
-  if (Math.abs(y - 41) <= 1 && x >= 28 && x <= 38) return true;
-  if (Math.abs(y - 28) <= 1 && x >= 13 && x <= 21) return true;
-  if (Math.abs(x - 13) <= 1 && y >= 28 && y <= 40) return true;
-  if (x >= 10 && x <= 21 && y >= 11 && y <= 22 && Math.abs((x - 10) - (y - 11)) <= 1.5) return true;
-  if (x >= 35 && x <= 44 && y >= 13 && y <= 22 && Math.abs((x - 35) - (22 - y)) <= 1.5) return true;
-  if (Math.abs(y - 45) <= 1 && x >= 41 && x <= 46) return true;
+  // Main roads connecting all zones from Central Citadel:
+  // 1. North Road: from (36, 26) to Lake Pier (36, 17)
+  if (Math.abs(x - 36) <= 1.2 && y >= 17 && y <= 26) return true;
+  // 2. South Road: from (36, 46) to Southern Crossroads (36, 56)
+  if (Math.abs(x - 36) <= 1.2 && y >= 46 && y <= 56) return true;
+  // 3. West Road: from (26, 36) heading west to Beach/Mountain fork (18, 36)
+  if (Math.abs(y - 36) <= 1.2 && x >= 17 && x <= 26) return true;
+  // 4. East Road: from (46, 36) heading east to Arena/Farm fork (54, 36)
+  if (Math.abs(y - 36) <= 1.2 && x >= 46 && x <= 56) return true;
+  // 5. Road to Mountain Dungeon (Top-Left): from (18, 36) up to (10, 16)
+  if (x >= 9 && x <= 19 && y >= 15 && y <= 36 && Math.abs((x - 10) - (y - 15) * 0.45) <= 1.6) return true;
+  // 6. Road to Arena Colosseum (Top-Right): from (54, 36) up to (58, 21)
+  if (x >= 52 && x <= 60 && y >= 19 && y <= 36 && Math.abs((x - 58) + (y - 20) * 0.35) <= 1.6) return true;
+  // 7. Road to Farmland & Wood Camp: from (54, 36) east to (64, 44)
+  if (x >= 54 && x <= 64 && y >= 36 && y <= 45 && Math.abs((x - 54) - (y - 36) * 1.1) <= 1.5) return true;
+  // 8. Road to Beach & Dock: from (18, 36) down to Beach (12, 56)
+  if (x >= 10 && x <= 19 && y >= 36 && y <= 56 && Math.abs((x - 18) + (y - 36) * 0.35) <= 1.5) return true;
+  // 9. Road to Stone Quarry: from (36, 56) east to (48, 56)
+  if (Math.abs(y - 56) <= 1.2 && x >= 36 && x <= 49) return true;
+  // 10. Inner Ring roads in Central:
+  if (x >= 28 && x <= 44 && (Math.abs(y - 30) <= 0.8 || Math.abs(y - 42) <= 0.8)) return true;
+  if (y >= 30 && y <= 42 && (Math.abs(x - 30) <= 0.8 || Math.abs(x - 42) <= 0.8)) return true;
   return false;
 }
 
 export function isWalkableTile(x: number, y: number): boolean {
-  return x >= 1 && x <= 54 && y >= 1 && y <= 54 && !isWaterTile(x, y);
+  return x >= 1 && x <= 70 && y >= 1 && y <= 70 && !isWaterTile(x, y);
 }
 
 export function isDecorativeTreeTile(x: number, y: number): boolean {
-  if (x <= 2 || y <= 2 || x >= 53 || y >= 53) return false;
+  if (x <= 3 || y <= 3 || x >= 69 || y >= 69) return false;
   if (
     isCentralTile(x, y) ||
     isRoadTile(x, y) ||
     isDungeonTile(x, y) ||
     isArenaTile(x, y) ||
+    isFarmlandTile(x, y) ||
     isWoodWorkAreaTile(x, y) ||
     isStoneWorkAreaTile(x, y) ||
     !isWalkableTile(x, y)
@@ -990,8 +1033,8 @@ export function isDecorativeTreeTile(x: number, y: number): boolean {
   ) {
     return false;
   }
-  if (Math.hypot(x - 6, y - 37) <= 3 || Math.hypot(x - 28, y - 14) <= 3) return false;
-  return (x * 37 + y * 73) % 13 === 0;
+  if (Math.hypot(x - 10, y - 58) <= 3 || Math.hypot(x - 36, y - 18) <= 3) return false;
+  return (x * 41 + y * 79) % 11 === 0 || (x * 23 + y * 53) % 17 === 0;
 }
 
 function createDefaultAfkVault(): AfkVault {
@@ -1455,45 +1498,45 @@ class LocalGameBackend {
     if (phase === 'stroll' || activity === 'stroll') {
       const routes: Array<Array<{ x: number; y: number }>> = [
         [
-          { x: 26, y: 29 },
-          { x: 30, y: 29 },
-          { x: 31, y: 26 },
-          { x: 27, y: 25 },
+          { x: 34, y: 37 },
+          { x: 38, y: 37 },
+          { x: 39, y: 34 },
+          { x: 35, y: 33 },
         ],
         [
-          { x: 25, y: 31 },
-          { x: 29, y: 32 },
-          { x: 32, y: 29 },
-          { x: 28, y: 26 },
+          { x: 33, y: 39 },
+          { x: 37, y: 40 },
+          { x: 40, y: 37 },
+          { x: 36, y: 34 },
         ],
       ];
       return routes[seed % routes.length]!;
     }
     if (activity === 'wood') {
       return [
-        { x: 42, y: 27 },
-        { x: 45, y: 27 },
-        { x: 44, y: 29 },
+        { x: 56, y: 46 },
+        { x: 59, y: 46 },
+        { x: 58, y: 48 },
       ];
     }
     if (activity === 'stone') {
       return [
-        { x: 37, y: 44 },
-        { x: 40, y: 44 },
-        { x: 38, y: 46 },
+        { x: 49, y: 59 },
+        { x: 52, y: 59 },
+        { x: 50, y: 61 },
       ];
     }
     if (activity === 'fish') {
       return [
-        { x: 27, y: 14 },
-        { x: 29, y: 14 },
-        { x: 28, y: 14 },
+        { x: 35, y: 18 },
+        { x: 37, y: 18 },
+        { x: 36, y: 18 },
       ];
     }
     return [
-      { x: 9, y: 12 },
-      { x: 10, y: 11 },
-      { x: 8, y: 12 },
+      { x: 10, y: 12 },
+      { x: 12, y: 11 },
+      { x: 9, y: 11 },
     ];
   }
 
